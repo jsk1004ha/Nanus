@@ -9,6 +9,9 @@ RunKind = str
 COMMAND_LABELS: dict[RunKind, str] = {
     "deck": "발표자료 제작",
     "writing": "글쓰기 조언",
+    "document": "문서 작성",
+    "spreadsheet": "엑셀 제작",
+    "visualization": "시각화 제작",
     "site": "웹사이트 구축",
     "app": "앱 개발",
     "design": "디자인 정리",
@@ -22,6 +25,9 @@ COMMAND_LABELS: dict[RunKind, str] = {
 RUN_WORKERS: dict[RunKind, str] = {
     "deck": "Artifact Studio + Presenton",
     "writing": "Writing Coach",
+    "document": "Document Writer",
+    "spreadsheet": "Spreadsheet Studio",
+    "visualization": "Visualization Studio",
     "site": "Web Builder + Codex",
     "app": "Codex Lane",
     "design": "Design System Agent",
@@ -30,6 +36,22 @@ RUN_WORKERS: dict[RunKind, str] = {
     "library": "Library Indexer",
     "agent": "Planner",
     "general": "Nanus Executor",
+}
+
+ARTIFACTS: dict[RunKind, list[tuple[str, str, str]]] = {
+    "deck": [("outline", "목차", "outline"), ("pptx", "초안.pptx", "pptx")],
+    "writing": [("writing-advice", "보고서 원고 확장 제안.md", "markdown")],
+    "document": [("document", "문서 초안.md", "markdown")],
+    "spreadsheet": [("workbook", "분석 워크북.xls", "spreadsheet")],
+    "visualization": [("dashboard", "시각화.html", "visualization")],
+    "research": [("brief", "리서치 브리프", "research-brief"), ("sources", "출처 목록", "citations")],
+    "site": [("wireframe", "페이지 구조", "wireframe"), ("preview", "미리보기", "web")],
+    "app": [("tasks", "구현 태스크", "task-list"), ("checks", "검증 체크", "test-plan")],
+    "design": [("tokens", "토큰", "design-tokens"), ("qa", "QA", "design-qa")],
+    "schedule": [("schedule", "예약", "schedule")],
+    "library": [("library", "검색 결과", "library")],
+    "agent": [("graph", "에이전트 그래프", "graph")],
+    "general": [("result", "결과", "note")],
 }
 
 
@@ -44,41 +66,37 @@ def split_command(input_text: str) -> tuple[str, str]:
     return "/run", trimmed
 
 
+def _has(haystack: str, tokens: list[str]) -> bool:
+    return any(token in haystack for token in tokens)
+
+
 def detect_run_kind(command: str, prompt: str) -> RunKind:
     haystack = f"{command} {prompt}".lower()
-    if command in {"/deck-from-brief", "/artifact-studio"}:
+    if command == "/deck-from-brief":
         return "deck"
-    if any(
-        token in haystack
-        for token in [
-            "글 늘릴",
-            "글늘릴",
-            "늘릴방법",
-            "늘릴 방법",
-            "분량",
-            "보강",
-            "확장",
-            "문단 추가",
-            "문장 추가",
-            "첨삭",
-        ]
-    ):
+    if command in {"/document", "/doc", "/report"} or _has(haystack, ["보고서", "문서", "docx", "markdown", "원고"]):
+        return "document"
+    if command in {"/spreadsheet", "/excel", "/xlsx"} or _has(haystack, ["엑셀", "excel", "xlsx", "스프레드시트", "워크북"]):
+        return "spreadsheet"
+    if command in {"/visualization", "/viz", "/chart", "/dashboard"} or _has(haystack, ["시각화", "차트", "그래프", "dashboard", "대시보드"]):
+        return "visualization"
+    if _has(haystack, ["글 늘릴", "글늘릴", "늘릴방법", "늘릴 방법", "분량", "보강", "확장", "문단 추가", "문장 추가", "첨삭"]):
         return "writing"
-    if any(token in haystack for token in ["artifact-studio", "deck", "ppt", "pdf", "hwpx", "발표", "슬라이드", "문서"]):
+    if _has(haystack, ["artifact-studio", "deck", "ppt", "pdf", "hwpx", "발표", "슬라이드"]):
         return "deck"
-    if any(token in haystack for token in ["site", "web", "웹사이트"]):
+    if _has(haystack, ["site", "web", "웹사이트"]):
         return "site"
-    if any(token in haystack for token in ["app", "desktop", "앱"]):
+    if _has(haystack, ["app", "desktop", "앱"]):
         return "app"
-    if any(token in haystack for token in ["design", "디자인"]):
+    if _has(haystack, ["design", "디자인"]):
         return "design"
-    if any(token in haystack for token in ["research", "리서치", "조사", "출처", "근거"]):
+    if _has(haystack, ["research", "리서치", "조사", "출처", "근거"]):
         return "research"
-    if any(token in haystack for token in ["schedule", "예약"]):
+    if _has(haystack, ["schedule", "예약"]):
         return "schedule"
-    if any(token in haystack for token in ["library", "라이브러리"]):
+    if _has(haystack, ["library", "라이브러리"]):
         return "library"
-    if any(token in haystack for token in ["agent", "에이전트"]):
+    if _has(haystack, ["agent", "에이전트"]):
         return "agent"
     return "general"
 
@@ -89,101 +107,29 @@ def summarize_run_title(prompt: str, command: str, kind: RunKind) -> str:
 
 
 def build_run_steps(kind: RunKind, prompt: str, command: str) -> list[dict[str, Any]]:
-    base_detail = prompt or command
-    step_map: dict[RunKind, list[dict[str, Any]]] = {
-        "deck": [
-            {"id": "brief", "title": "요구사항 해석", "detail": base_detail, "state": "done"},
-            {"id": "outline", "title": "슬라이드 구조 생성", "detail": "목차, 메시지, 근거를 구성합니다.", "state": "active"},
-            {"id": "render", "title": "PPTX 렌더링", "detail": "Presenton/export 슬롯을 준비합니다.", "state": "pending"},
-        ],
-        "writing": [
-            {"id": "diagnose", "title": "원고 진단", "detail": base_detail, "state": "done"},
-            {"id": "strategy", "title": "보강 방향 설계", "detail": "분량을 자연스럽게 늘릴 섹션과 근거를 찾습니다.", "state": "active"},
-            {"id": "answer", "title": "답변 작성", "detail": "바로 적용 가능한 문단 예시와 주의점을 작성합니다.", "state": "pending"},
-        ],
-        "site": [
-            {"id": "brief", "title": "사이트 요구사항 해석", "detail": base_detail, "state": "done"},
-            {"id": "layout", "title": "페이지 구조 작성", "detail": "섹션, 라우트, 콘텐츠 블록을 설계합니다.", "state": "active"},
-            {"id": "build", "title": "프론트엔드 생성", "detail": "React/CSS 산출물을 빌드합니다.", "state": "pending"},
-        ],
-        "app": [
-            {"id": "scope", "title": "앱 범위 정의", "detail": base_detail, "state": "done"},
-            {"id": "tasks", "title": "구현 태스크 분해", "detail": "Codex Lane 실행 단위를 만듭니다.", "state": "active"},
-            {"id": "verify", "title": "테스트 계획", "detail": "빌드와 브라우저 검증을 준비합니다.", "state": "pending"},
-        ],
-        "design": [
-            {"id": "audit", "title": "디자인 요구사항 정리", "detail": base_detail, "state": "done"},
-            {"id": "tokens", "title": "토큰/컴포넌트 정리", "detail": "색상, 간격, 상태를 정리합니다.", "state": "active"},
-            {"id": "qa", "title": "시각 QA", "detail": "스크린샷 비교와 수정 목록을 생성합니다.", "state": "pending"},
-        ],
-        "research": [
-            {"id": "scope", "title": "조사 질문 고정", "detail": base_detail, "state": "done"},
-            {"id": "sources", "title": "출처 수집/검증", "detail": "검색과 인용 후보를 확인합니다.", "state": "active"},
-            {"id": "synthesis", "title": "근거 합성", "detail": "요약, 결론, 한계를 작성합니다.", "state": "pending"},
-        ],
-        "schedule": [
-            {"id": "parse", "title": "예약 조건 해석", "detail": base_detail, "state": "done"},
-            {"id": "calendar", "title": "실행 시간 계산", "detail": "반복 주기와 대상 산출물을 확인합니다.", "state": "active"},
-            {"id": "save", "title": "예약 저장", "detail": "승인 후 스케줄러에 등록합니다.", "state": "pending"},
-        ],
-        "library": [
-            {"id": "lookup", "title": "라이브러리 검색", "detail": base_detail, "state": "done"},
-            {"id": "index", "title": "관련 산출물 매칭", "detail": "문서, PPT, 웹 요약본을 연결합니다.", "state": "active"},
-            {"id": "open", "title": "작업으로 가져오기", "detail": "선택한 산출물을 입력 컨텍스트로 붙입니다.", "state": "pending"},
-        ],
-        "agent": [
-            {"id": "roles", "title": "에이전트 역할 구성", "detail": base_detail, "state": "done"},
-            {"id": "permissions", "title": "권한 경계 설정", "detail": "파일, 브라우저, 실행 권한을 분리합니다.", "state": "active"},
-            {"id": "handoff", "title": "실행 핸드오프", "detail": "작업 그래프에 연결합니다.", "state": "pending"},
-        ],
-        "general": [
-            {"id": "read", "title": "요청 해석", "detail": base_detail, "state": "done"},
-            {"id": "plan", "title": "실행 계획 생성", "detail": "필요한 도구와 산출물을 결정합니다.", "state": "active"},
-            {"id": "result", "title": "결과 작성", "detail": "완료 가능한 출력으로 정리합니다.", "state": "pending"},
-        ],
+    detail = prompt or command
+    special = {
+        "document": [("outline", "문서 구조 설계"), ("draft", "본문 작성"), ("export", "문서 내보내기")],
+        "spreadsheet": [("schema", "시트 구조 설계"), ("workbook", "워크북 생성"), ("verify", "범위 검증")],
+        "visualization": [("question", "질문 유형 분석"), ("chart", "차트 선택"), ("render", "대시보드 렌더링")],
     }
-    return [dict(step) for step in step_map[kind]]
+    default = [("read", "요청 해석"), ("plan", "실행 계획 생성"), ("result", "결과 작성")]
+    deck = [("brief", "요구사항 해석"), ("outline", "슬라이드 구조 생성"), ("render", "PPTX 렌더링")]
+    writing = [("diagnose", "원고 진단"), ("strategy", "보강 방향 설계"), ("answer", "답변 작성")]
+    rows = deck if kind == "deck" else writing if kind == "writing" else special.get(kind, default)
+    return [{"id": step_id, "title": title, "detail": detail if index == 0 else f"{COMMAND_LABELS[kind]} 단계", "state": "done" if index == 0 else "active" if index == 1 else "pending"} for index, (step_id, title) in enumerate(rows)]
 
 
 def build_artifacts(kind: RunKind, title: str) -> list[dict[str, Any]]:
-    artifact_map: dict[RunKind, list[dict[str, str]]] = {
-        "deck": [
-            {"id": "outline", "title": f"{title} 목차", "type": "outline"},
-            {"id": "pptx", "title": f"{title} 초안.pptx", "type": "pptx"},
-        ],
-        "writing": [{"id": "writing-advice", "title": "보고서 원고 확장 제안.md", "type": "markdown"}],
-        "site": [
-            {"id": "wireframe", "title": f"{title} 페이지 구조", "type": "wireframe"},
-            {"id": "preview", "title": f"{title} 미리보기", "type": "web"},
-        ],
-        "app": [
-            {"id": "tasks", "title": f"{title} 구현 태스크", "type": "task-list"},
-            {"id": "checks", "title": f"{title} 검증 체크", "type": "test-plan"},
-        ],
-        "design": [
-            {"id": "tokens", "title": f"{title} 토큰", "type": "design-tokens"},
-            {"id": "qa", "title": f"{title} QA", "type": "design-qa"},
-        ],
-        "research": [
-            {"id": "brief", "title": f"{title} 리서치 브리프", "type": "research-brief"},
-            {"id": "sources", "title": f"{title} 출처 목록", "type": "citations"},
-        ],
-        "schedule": [{"id": "schedule", "title": f"{title} 예약", "type": "schedule"}],
-        "library": [{"id": "library", "title": f"{title} 검색 결과", "type": "library"}],
-        "agent": [{"id": "graph", "title": f"{title} 에이전트 그래프", "type": "graph"}],
-        "general": [{"id": "result", "title": f"{title} 결과", "type": "note"}],
-    }
-    return [dict(artifact) for artifact in artifact_map[kind]]
+    return [{"id": item_id, "title": label if item_id in {"writing-advice"} else f"{title} {label}", "type": item_type} for item_id, label, item_type in ARTIFACTS[kind]]
 
 
 def create_run(input_text: str, *, mode: str = "local") -> dict[str, Any]:
     command, prompt = split_command(input_text)
     kind = detect_run_kind(command, prompt)
     title = summarize_run_title(prompt, command, kind)
-    steps = build_run_steps(kind, prompt, command)
-    queued_steps = [{**step, "state": "pending"} for step in steps]
+    steps = [{**step, "state": "pending"} for step in build_run_steps(kind, prompt, command)]
     now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
     return {
         "id": uuid4().hex,
         "title": title,
@@ -194,11 +140,8 @@ def create_run(input_text: str, *, mode: str = "local") -> dict[str, Any]:
         "worker": RUN_WORKERS[kind],
         "progress": 0,
         "startedAt": datetime.now().strftime("%H:%M"),
-        "steps": queued_steps,
+        "steps": steps,
         "artifacts": build_artifacts(kind, title),
-        "log": [
-            f"{command} 명령을 수신했습니다.",
-            f"{COMMAND_LABELS[kind]} 실행 그래프를 대기열에 등록했습니다.",
-        ],
+        "log": [f"{command} 명령을 수신했습니다.", f"{COMMAND_LABELS[kind]} 실행 그래프를 대기열에 등록했습니다."],
         "runtime": {"source": "backend", "mode": mode, "createdAt": now},
     }
