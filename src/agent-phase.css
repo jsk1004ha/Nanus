@@ -1,0 +1,51 @@
+.agent-phase-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.agent-phase-strip span {
+  display: grid;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-2) 78%, transparent);
+}
+
+.agent-phase-strip small,
+.agent-phase-strip strong,
+.agent-phase-strip em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-phase-strip small {
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 860;
+}
+
+.agent-phase-strip strong {
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.agent-phase-strip em {
+  margin-top: 3px;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-style: normal;
+}
+
+@media (max-width: 620px) {
+  .agent-phase-strip {
+    grid-template-columns: 1fr;
+  }
+}
