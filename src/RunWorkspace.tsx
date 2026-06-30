@@ -201,31 +201,6 @@ export default function RunWorkspace({
           </dl>
         </section>
 
-        <div className="agent-run-metrics" aria-label="Run summary">
-          <span>
-            <strong>{run.command}</strong>
-            <small>명령</small>
-          </span>
-          <span>
-            <strong>{run.progress}%</strong>
-            <small>진행률</small>
-          </span>
-          <span>
-            <strong>{run.verification?.status ?? (run.verification?.fallbackUsed ? "degraded" : run.verification?.llmUsed ? "verified" : run.source ?? "local")}</strong>
-            <small>실행 출처</small>
-          </span>
-        </div>
-
-        <div className="agent-runtime-grid" aria-label="OpenManus-inspired runtime">
-          {runtimeStack.map((item) => (
-            <span key={item.label}>
-              <small>{item.label}</small>
-              <strong>{item.value}</strong>
-              <em>{item.detail}</em>
-            </span>
-          ))}
-        </div>
-
         <span className="sr-only" data-testid="run-progress-value">
           {run.progress}
         </span>
@@ -240,23 +215,55 @@ export default function RunWorkspace({
           <span style={{ width: `${run.progress}%` }} />
         </div>
 
-        <ol className="timeline active-run-timeline">
-          {run.steps.map((step) => (
-            <li key={step.id} className={step.state === "pending" ? undefined : step.state}>
-              <span />
-              <div>
-                <strong>{step.title}</strong>
-                <small>{step.detail}</small>
-              </div>
-            </li>
-          ))}
-        </ol>
+        <details className="run-evidence-details" open={!terminal && !run.finalAnswer}>
+          <summary>
+            <span>실행 세부</span>
+            <em>{activeStep?.title ?? statusLabel} · {run.log.length} records</em>
+          </summary>
 
-        <div className="active-run-log" aria-label="Run log">
-          {visibleLogs.map((line) => (
-            <span key={line}>{line}</span>
-          ))}
-        </div>
+          <div className="agent-run-metrics" aria-label="Run summary">
+            <span>
+              <strong>{run.command}</strong>
+              <small>명령</small>
+            </span>
+            <span>
+              <strong>{run.progress}%</strong>
+              <small>진행률</small>
+            </span>
+            <span>
+              <strong>{run.verification?.status ?? (run.verification?.fallbackUsed ? "degraded" : run.verification?.llmUsed ? "verified" : run.source ?? "local")}</strong>
+              <small>실행 출처</small>
+            </span>
+          </div>
+
+          <div className="agent-runtime-grid" aria-label="OpenManus-inspired runtime">
+            {runtimeStack.map((item) => (
+              <span key={item.label}>
+                <small>{item.label}</small>
+                <strong>{item.value}</strong>
+                <em>{item.detail}</em>
+              </span>
+            ))}
+          </div>
+
+          <ol className="timeline active-run-timeline">
+            {run.steps.map((step) => (
+              <li key={step.id} className={step.state === "pending" ? undefined : step.state}>
+                <span />
+                <div>
+                  <strong>{step.title}</strong>
+                  <small>{step.detail}</small>
+                </div>
+              </li>
+            ))}
+          </ol>
+
+          <div className="active-run-log" aria-label="Run log">
+            {visibleLogs.map((line) => (
+              <span key={line}>{line}</span>
+            ))}
+          </div>
+        </details>
 
         <div className="active-run-artifacts" aria-label="Run artifacts">
           {sortArtifactsForDisplay(run.artifacts).map((artifact) => (

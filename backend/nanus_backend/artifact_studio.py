@@ -127,6 +127,9 @@ def _content_types_xml(slide_count: int) -> str:
   <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
   <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
   <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
+  <Override PartName="/ppt/presProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"/>
+  <Override PartName="/ppt/viewProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"/>
+  <Override PartName="/ppt/tableStyles.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"/>
   <Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>
   <Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>
   <Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>
@@ -158,6 +161,15 @@ def _presentation_xml(slide_count: int) -> str:
   </p:sldIdLst>
   <p:sldSz cx="12192000" cy="6858000" type="wide"/>
   <p:notesSz cx="6858000" cy="9144000"/>
+  <p:defaultTextStyle>
+    <a:defPPr>
+      <a:defRPr lang="ko-KR" sz="1800">
+        <a:solidFill><a:schemeClr val="tx1"/></a:solidFill>
+        <a:latin typeface="Aptos"/>
+        <a:ea typeface="맑은 고딕"/>
+      </a:defRPr>
+    </a:defPPr>
+  </p:defaultTextStyle>
 </p:presentation>
 """
 
@@ -167,10 +179,16 @@ def _presentation_rels_xml(slide_count: int) -> str:
         f'  <Relationship Id="rId{index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide{index}.xml"/>'
         for index in range(1, slide_count + 1)
     )
+    props_id = slide_count + 2
+    view_id = slide_count + 3
+    table_id = slide_count + 4
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>
 {slide_rels}
+  <Relationship Id="rId{props_id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/presProps" Target="presProps.xml"/>
+  <Relationship Id="rId{view_id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/viewProps" Target="viewProps.xml"/>
+  <Relationship Id="rId{table_id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/tableStyles" Target="tableStyles.xml"/>
 </Relationships>
 """
 
@@ -181,6 +199,11 @@ def _slide_master_xml() -> str:
   <p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld>
   <p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>
   <p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst>
+  <p:txStyles>
+    <p:titleStyle><a:lvl1pPr algn="l"><a:defRPr lang="ko-KR" sz="3800" b="1"><a:latin typeface="Aptos Display"/><a:ea typeface="맑은 고딕"/></a:defRPr></a:lvl1pPr></p:titleStyle>
+    <p:bodyStyle><a:lvl1pPr marL="0" indent="0"><a:defRPr lang="ko-KR" sz="2100"><a:latin typeface="Aptos"/><a:ea typeface="맑은 고딕"/></a:defRPr></a:lvl1pPr></p:bodyStyle>
+    <p:otherStyle><a:lvl1pPr><a:defRPr lang="ko-KR" sz="1800"><a:latin typeface="Aptos"/><a:ea typeface="맑은 고딕"/></a:defRPr></a:lvl1pPr></p:otherStyle>
+  </p:txStyles>
 </p:sldMaster>
 """
 
@@ -230,6 +253,49 @@ def _theme_xml() -> str:
 """
 
 
+def _pres_props_xml() -> str:
+    return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentationPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:showPr showNarration="1">
+    <p:present/>
+  </p:showPr>
+</p:presentationPr>
+"""
+
+
+def _view_props_xml() -> str:
+    return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:viewPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:normalViewPr>
+    <p:restoredLeft sz="15620"/>
+    <p:restoredTop sz="94660"/>
+  </p:normalViewPr>
+  <p:slideViewPr>
+    <p:cSldViewPr>
+      <p:cViewPr varScale="1">
+        <p:scale><a:sx n="100" d="100"/><a:sy n="100" d="100"/></p:scale>
+        <p:origin x="0" y="0"/>
+      </p:cViewPr>
+      <p:guideLst/>
+    </p:cSldViewPr>
+  </p:slideViewPr>
+  <p:notesTextViewPr>
+    <p:cViewPr>
+      <p:scale><a:sx n="100" d="100"/><a:sy n="100" d="100"/></p:scale>
+      <p:origin x="0" y="0"/>
+    </p:cViewPr>
+  </p:notesTextViewPr>
+  <p:gridSpacing cx="72008" cy="72008"/>
+</p:viewPr>
+"""
+
+
+def _table_styles_xml() -> str:
+    return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<a:tblStyleLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" def="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"/>
+"""
+
+
 def _core_xml(title: str) -> str:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -263,6 +329,9 @@ def build_pptx_bytes(title: str, slides: list[dict[str, Any]]) -> bytes:
         package.writestr("docProps/app.xml", _app_xml(len(safe_slides)))
         package.writestr("ppt/presentation.xml", _presentation_xml(len(safe_slides)))
         package.writestr("ppt/_rels/presentation.xml.rels", _presentation_rels_xml(len(safe_slides)))
+        package.writestr("ppt/presProps.xml", _pres_props_xml())
+        package.writestr("ppt/viewProps.xml", _view_props_xml())
+        package.writestr("ppt/tableStyles.xml", _table_styles_xml())
         package.writestr("ppt/slideMasters/slideMaster1.xml", _slide_master_xml())
         package.writestr("ppt/slideMasters/_rels/slideMaster1.xml.rels", _slide_master_rels_xml())
         package.writestr("ppt/slideLayouts/slideLayout1.xml", _slide_layout_xml())

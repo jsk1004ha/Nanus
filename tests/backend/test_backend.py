@@ -41,6 +41,47 @@ def wait_for_terminal_run(client: TestClient, run_id: str, *, attempts: int = 40
     raise AssertionError(f"run {run_id} did not reach a terminal state")
 
 
+def assert_powerpoint_package_contract(data: bytes, expected_slide_count: int) -> None:
+    required_parts = {
+        "[Content_Types].xml",
+        "_rels/.rels",
+        "docProps/app.xml",
+        "docProps/core.xml",
+        "ppt/presentation.xml",
+        "ppt/_rels/presentation.xml.rels",
+        "ppt/presProps.xml",
+        "ppt/viewProps.xml",
+        "ppt/tableStyles.xml",
+        "ppt/slideMasters/slideMaster1.xml",
+        "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+        "ppt/slideLayouts/slideLayout1.xml",
+        "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+        "ppt/theme/theme1.xml",
+    }
+    rel_ns = {"rel": "http://schemas.openxmlformats.org/package/2006/relationships"}
+    ppt_ns = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        names = set(package.namelist())
+        assert required_parts.issubset(names)
+        slide_names = [name for name in names if name.startswith("ppt/slides/slide") and name.endswith(".xml")]
+        assert len(slide_names) == expected_slide_count
+        assert f"ppt/slides/slide{expected_slide_count}.xml" in names
+        for name in names:
+            if name.endswith(".xml"):
+                ET.fromstring(package.read(name))
+
+        presentation = ET.fromstring(package.read("ppt/presentation.xml"))
+        assert presentation.find("p:defaultTextStyle", ppt_ns) is not None
+        slide_master = ET.fromstring(package.read("ppt/slideMasters/slideMaster1.xml"))
+        assert slide_master.find("p:txStyles", ppt_ns) is not None
+
+        rels = ET.fromstring(package.read("ppt/_rels/presentation.xml.rels"))
+        targets = {relationship.attrib["Target"] for relationship in rels.findall("rel:Relationship", rel_ns)}
+        assert {"presProps.xml", "viewProps.xml", "tableStyles.xml", "slideMasters/slideMaster1.xml"}.issubset(targets)
+        for index in range(1, expected_slide_count + 1):
+            assert f"slides/slide{index}.xml" in targets
+
+
 def test_run_creation_websocket_stream_and_persistence(tmp_path: Path) -> None:
     client = make_client(tmp_path)
 
@@ -97,12 +138,7 @@ def test_run_creation_websocket_stream_and_persistence(tmp_path: Path) -> None:
     assert download.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.presentationml.presentation")
     assert "filename*=" in download.headers["content-disposition"]
     assert ".pptx" in download.headers["content-disposition"]
-    with zipfile.ZipFile(io.BytesIO(download.content)) as package:
-        slide_names = [name for name in package.namelist() if name.startswith("ppt/slides/slide") and name.endswith(".xml")]
-        assert len(slide_names) == 12
-        assert "ppt/slides/slide12.xml" in slide_names
-        for name in slide_names:
-            ET.fromstring(package.read(name))
+    assert_powerpoint_package_contract(download.content, expected_slide_count=12)
 
     missing_artifact = client.get(f"/api/runs/{run['id']}/artifacts/not-found/download")
     assert missing_artifact.status_code == 404

@@ -774,11 +774,33 @@ export function App() {
 
   function restoreRunFromHistory(item: RunHistoryItem) {
     runLaunchCount.current += 1;
+    const restoreToken = runLaunchCount.current;
     runStreamCleanup.current?.();
     runStreamCleanup.current = null;
     setMobileSidebarOpen(false);
     setRunPaused(item.status === "paused");
     setActiveRun(item.snapshot);
+    if (item.source === "backend") {
+      void import("./runApi")
+        .then(({ restoreBackendRun }) =>
+          restoreBackendRun(item.id, (run) => {
+            if (runLaunchCount.current === restoreToken) {
+              setActiveRun(run);
+              setRunPaused(run.status === "paused");
+            }
+          }),
+        )
+        .then((cleanup) => {
+          if (runLaunchCount.current !== restoreToken) cleanup?.();
+          else if (cleanup) runStreamCleanup.current = cleanup;
+        })
+        .catch((error: unknown) => {
+          const detail = error instanceof Error ? error.message : "unknown";
+          if (runLaunchCount.current === restoreToken) {
+            setActiveRun({ ...item.snapshot, log: [...item.snapshot.log, `백엔드 이력 복구 실패: ${detail}`] });
+          }
+        });
+    }
   }
 
   function createProject() {

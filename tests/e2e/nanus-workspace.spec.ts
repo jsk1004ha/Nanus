@@ -1,4 +1,11 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
+
+async function openExecutionDetails(worklog: Locator) {
+  const details = worklog.locator(".run-evidence-details");
+  await expect(details).toBeVisible();
+  const isOpen = await details.evaluate((node) => (node as HTMLDetailsElement).open);
+  if (!isOpen) await details.locator("summary").click();
+}
 
 test("sending a short prompt starts a visible Manus-like execution", async ({ page }) => {
   await page.goto("/");
@@ -18,6 +25,7 @@ test("sending a short prompt starts a visible Manus-like execution", async ({ pa
   await expect(worklog.getByRole("heading", { name: "안녕" })).toBeVisible();
   await expect(worklog.getByText("/run 명령을 수신했습니다.")).toBeVisible();
   await expect(worklog.getByText("일반 실행 실행 그래프를 구성했습니다.")).toBeVisible();
+  await openExecutionDetails(worklog);
   await expect(worklog.locator(".active-run-timeline").getByText("요청 해석", { exact: true })).toBeVisible();
   await expect(worklog.locator(".active-run-timeline").getByText("실행 계획 생성", { exact: true })).toBeVisible();
   await expect(worklog.getByLabel("OpenManus-inspired runtime").getByText("State loop")).toBeVisible();
@@ -25,6 +33,7 @@ test("sending a short prompt starts a visible Manus-like execution", async ({ pa
 
   await expect.poll(async () => Number(await worklog.getByTestId("run-progress-value").textContent())).toBeGreaterThan(60);
   await expect.poll(async () => (await worklog.getByTestId("run-status").textContent())?.trim()).toBe("제한 실행");
+  await openExecutionDetails(worklog);
   await expect(worklog.getByLabel("Execution health")).toContainText("제한 실행");
   await expect(worklog.getByLabel("Execution health")).toContainText("verification");
   await expect(worklog.getByText("완료: 결과 작성")).toBeVisible();
@@ -122,6 +131,7 @@ test("commercial workspace controls are wired", async ({ page }) => {
   await page.locator(".send-button").click();
   worklog = page.getByLabel("Active run workspace");
   await expect(worklog.getByRole("heading", { name: "고양이 밈 생성 실험" })).toBeVisible();
+  await openExecutionDetails(worklog);
   await expect(worklog.locator(".active-run-timeline").getByText("요청 해석", { exact: true })).toBeVisible();
   await expect(worklog).not.toContainText("학습지원 분석");
 

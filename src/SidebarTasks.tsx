@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Activity } from "lucide-react";
 import { tasks } from "./data";
-import { readRunHistory, upsertRunHistory, type RunHistoryItem } from "./runHistory";
+import { loadBackendRuns } from "./runApi";
+import { mergeRunHistory, readRunHistory, toRunHistoryItem, upsertRunHistory, writeRunHistory, type RunHistoryItem } from "./runHistory";
 import type { ActiveRun } from "./types";
 
 export default function SidebarTasks({
@@ -19,6 +20,25 @@ export default function SidebarTasks({
   useEffect(() => {
     if (activeRun) setRunHistory((current) => upsertRunHistory(current, activeRun));
   }, [activeRun]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadBackendRuns()
+      .then((runs) => {
+        if (cancelled) return;
+        setRunHistory((current) => {
+          const next = mergeRunHistory(current, runs.map(toRunHistoryItem));
+          writeRunHistory(next);
+          return next;
+        });
+      })
+      .catch(() => {
+        // Static preview still uses local history; backend sync is opportunistic.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <>

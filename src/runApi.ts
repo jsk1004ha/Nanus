@@ -12,8 +12,38 @@ function asBackendRun(run: ActiveRun): ActiveRun {
   return { ...run, source: "backend" };
 }
 
-function isTerminalRun(run: ActiveRun) {
+export function isTerminalRun(run: ActiveRun) {
   return run.status === "complete" || run.status === "failed" || run.status === "cancelled" || run.status === "degraded";
+}
+
+function formatBackendDetail(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (item && typeof item === "object" && "msg" in item) return String((item as { msg: unknown }).msg);
+        return String(item);
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+  if (detail && typeof detail === "object") return JSON.stringify(detail);
+  return "";
+}
+
+async function backendError(response: Response): Promise<Error> {
+  let detail = "";
+  try {
+    const payload = (await response.json()) as { detail?: unknown; message?: unknown };
+    detail = formatBackendDetail(payload.detail ?? payload.message);
+  } catch {
+    try {
+      detail = await response.text();
+    } catch {
+      detail = "";
+    }
+  }
+  return new Error(`HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
 }
 
 async function createBackendRun(input: string, mode: WorkspaceMode): Promise<ActiveRun> {
@@ -22,7 +52,7 @@ async function createBackendRun(input: string, mode: WorkspaceMode): Promise<Act
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ message: input, mode }),
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) throw await backendError(response);
   const payload = (await response.json()) as { run?: ActiveRun };
   if (!payload.run) throw new Error("Backend returned no run");
   return asBackendRun(payload.run);
@@ -58,9 +88,16 @@ function subscribeToRun(runId: string, onRun: (run: ActiveRun) => void, onFallba
 export async function loadBackendRuns(): Promise<ActiveRun[]> {
   if (!backendEnabled) throw new Error("backend disabled");
   const response = await fetch(backendApiUrl("/api/runs"));
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) throw await backendError(response);
   const payload = (await response.json()) as { runs?: ActiveRun[] };
   return (payload.runs ?? []).map(asBackendRun);
+}
+
+export async function loadBackendRun(runId: string): Promise<ActiveRun> {
+  if (!backendEnabled) throw new Error("backend disabled");
+  const response = await fetch(backendApiUrl(`/api/runs/${encodeURIComponent(runId)}`));
+  if (!response.ok) throw await backendError(response);
+  return asBackendRun((await response.json()) as ActiveRun);
 }
 
 export async function restoreLatestBackendRun(onRun: (run: ActiveRun) => void) {
@@ -74,12 +111,21 @@ export async function restoreLatestBackendRun(onRun: (run: ActiveRun) => void) {
   return null;
 }
 
+export async function restoreBackendRun(runId: string, onRun: (run: ActiveRun) => void) {
+  const run = await loadBackendRun(runId);
+  onRun(run);
+  if (!isTerminalRun(run)) {
+    return subscribeToRun(run.id, onRun, (reason) => onRun({ ...run, log: [...run.log, `백엔드 재연결 실패: ${reason}`] }));
+  }
+  return null;
+}
+
 export async function setBackendRunPaused(runId: string, paused: boolean): Promise<ActiveRun> {
   if (!backendEnabled) throw new Error("backend disabled");
   const response = await fetch(backendApiUrl(`/api/runs/${encodeURIComponent(runId)}/${paused ? "pause" : "resume"}`), {
     method: "POST",
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) throw await backendError(response);
   const payload = (await response.json()) as { run: ActiveRun };
   return asBackendRun(payload.run);
 }
@@ -89,7 +135,7 @@ export async function cancelBackendRun(runId: string): Promise<ActiveRun> {
   const response = await fetch(backendApiUrl(`/api/runs/${encodeURIComponent(runId)}/cancel`), {
     method: "POST",
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) throw await backendError(response);
   const payload = (await response.json()) as { run: ActiveRun };
   return asBackendRun(payload.run);
 }
