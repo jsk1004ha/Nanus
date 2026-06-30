@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import ipaddress
 import json
 import os
 import re
+import socket
 import urllib.request
 from pathlib import Path
 from time import time
@@ -18,15 +20,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 
+from .artifact_validation import validate_artifacts
 from .codex_bridge import CodexBridge
 from .execution import ExecutionEngine
 from .llm import AnthropicMessagesClient
 from .run_model import create_run
+from .storage import RunStore
 from .supervisor import JobSupervisor
 from .tooling import artifact_studio_bundle, deck_from_brief, generic_llm_result, list_skill_tools, writing_advice
-from .storage import RunStore
 
 MAX_RUN_INPUT_CHARS = 120_000
+MAX_DOCUMENT_CONTEXT_CHARS = 16_000
 DEFAULT_CORS_ORIGINS = ("http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:4173", "http://localhost:4173")
 TERMINAL_RUN_STATUSES = {"complete", "failed", "cancelled", "degraded"}
 TERMINAL_EVENT_TYPES = {"run.done", "run.failed", "run.cancelled", "run.degraded"}
@@ -35,7 +39,6 @@ TERMINAL_EVENT_TYPES = {"run.done", "run.failed", "run.cancelled", "run.degraded
 class RunCreateRequest(BaseModel):
     input: str = Field(min_length=1)
     mode: str = "local"
-
     @field_validator("input")
     @classmethod
     def strip_input(cls, value: str) -> str:
@@ -47,7 +50,6 @@ class RunCreateRequest(BaseModel):
 
 class ToolInvokeRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=120_000)
-
     @field_validator("prompt")
     @classmethod
     def strip_prompt(cls, value: str) -> str:
@@ -67,8 +69,8 @@ class JsonRpcRequest(BaseModel):
 class ChatMessageRequest(BaseModel):
     message: str = Field(min_length=1)
     conversationId: str | None = None
+    documentIds: list[str] = Field(default_factory=list)
     mode: str = "local"
-
     @field_validator("message")
     @classmethod
     def strip_message(cls, value: str) -> str:
@@ -108,7 +110,7 @@ def _append_run_log(run: dict[str, Any], line: str) -> None:
 
 def _ensure_run_input_size(input_text: str) -> None:
     if len(input_text) > MAX_RUN_INPUT_CHARS:
-        raise HTTPException(status_code=413, detail=f"Input is too large for direct chat/run payload ({len(input_text)} chars > {MAX_RUN_INPUT_CHARS}).")
+        raise HTTPException(status_code=413, detail=f"Input is too large for direct chat/run payload ({len(input_text)} chars > {MAX_RUN_INPUT_CHARS}). Use document upload/RAG.")
 
 
 def _conversation_title(input_text: str) -> str:
@@ -169,7 +171,7 @@ def _load_document(root: Path, document_id: str) -> dict[str, Any] | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _search_documents(root: Path, query: str) -> list[dict[str, Any]]:
+def _search_documents(root: Path, query: str, *, limit: int = 8) -> list[dict[str, Any]]:
     terms = [term.lower() for term in re.findall(r"[\w가-힣]{2,}", query)]
     results: list[dict[str, Any]] = []
     for doc in _read_documents(root):
@@ -181,7 +183,49 @@ def _search_documents(root: Path, query: str) -> list[dict[str, Any]]:
             score = sum(1 for term in terms if term in text.lower()) if terms else 1
             if score:
                 results.append({"documentId": doc["id"], "title": doc["title"], "chunkId": chunk.get("id"), "index": chunk.get("index"), "score": score, "text": text[:900]})
-    return sorted(results, key=lambda item: item["score"], reverse=True)[:8]
+    return sorted(results, key=lambda item: item["score"], reverse=True)[:limit]
+
+
+def _document_context(root: Path, message: str, document_ids: list[str]) -> tuple[str, list[dict[str, Any]]]:
+    selected: list[dict[str, Any]] = []
+    if document_ids:
+        for document_id in document_ids:
+            full = _load_document(root, document_id)
+            if full:
+                for chunk in full.get("chunks", [])[:10]:
+                    selected.append({"documentId": full["id"], "title": full["title"], "chunkId": chunk.get("id"), "index": chunk.get("index"), "score": 999, "text": str(chunk.get("text", ""))[:900]})
+    else:
+        selected = _search_documents(root, message, limit=8)
+    if not selected:
+        return "", []
+    parts: list[str] = []
+    used = 0
+    for item in selected:
+        snippet = f"[D:{item['documentId']}#{item['index']} {item['title']}]\n{item['text']}"
+        if used + len(snippet) > MAX_DOCUMENT_CONTEXT_CHARS:
+            break
+        parts.append(snippet)
+        used += len(snippet)
+    return "\n\n".join(parts), selected[: len(parts)]
+
+
+def _assemble_run_input(root: Path, message: str, document_ids: list[str]) -> tuple[str, list[dict[str, Any]]]:
+    context, matches = _document_context(root, message, document_ids)
+    if not context:
+        return message, []
+    return f"{message}\n\n[Nanus Retrieved Document Context]\n{context}\n[/Nanus Retrieved Document Context]", matches
+
+
+def _blocked_ip(hostname: str) -> bool:
+    try:
+        addresses = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        raise HTTPException(status_code=422, detail="Browser target host cannot be resolved")
+    for item in addresses:
+        ip = ipaddress.ip_address(item[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+            return True
+    return False
 
 
 def _browser_snapshot(url: str) -> dict[str, Any]:
@@ -189,7 +233,7 @@ def _browser_snapshot(url: str) -> dict[str, Any]:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise HTTPException(status_code=422, detail="Only http(s) URLs can be browsed")
     host = parsed.hostname or ""
-    if host in {"localhost", "127.0.0.1", "0.0.0.0"} or host.startswith("169.254."):
+    if _blocked_ip(host):
         raise HTTPException(status_code=403, detail="Local/private browser targets are blocked")
     request = urllib.request.Request(url, headers={"user-agent": "NanusBrowser/0.1"})
     with urllib.request.urlopen(request, timeout=12) as response:
@@ -199,7 +243,7 @@ def _browser_snapshot(url: str) -> dict[str, Any]:
     cleaned = re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>", " ", raw, flags=re.IGNORECASE)
     text = re.sub(r"<[^>]+>", " ", cleaned)
     text = re.sub(r"\s+", " ", text).strip()[:6000]
-    return {"url": url, "title": title, "text": text, "engine": "urllib-browser-snapshot", "charCount": len(text)}
+    return {"url": url, "title": title, "text": text, "engine": "urllib-browser-snapshot", "charCount": len(text), "trace": {"allowedHost": host, "bytesReadLimit": 1_000_000}}
 
 
 def _approval(run: dict[str, Any]) -> dict[str, Any] | None:
@@ -215,15 +259,13 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
     codex = CodexBridge()
     engine = ExecutionEngine(store, llm=llm, codex=codex)
     supervisor = JobSupervisor(store, engine)
-
-    app = FastAPI(title="Nanus Execution Backend", version="0.1.0")
+    app = FastAPI(title="Nanus Execution Backend", version="0.2.0")
     app.state.store = store
     app.state.documents_root = document_root
     app.state.llm = llm
     app.state.codex = codex
     app.state.engine = engine
     app.state.supervisor = supervisor
-
     app.add_middleware(CORSMiddleware, allow_origins=_cors_origins(), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
     @app.on_event("startup")
@@ -236,7 +278,7 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
 
     @app.get("/health")
     def health() -> dict[str, Any]:
-        return {"ok": True, "database": str(store.db_path), "documents": len(_read_documents(document_root)), "browser": {"available": True, "engine": "urllib-browser-snapshot"}, "anthropic": llm.status(), "codex": codex.status(), "activeJobs": supervisor.active_job_ids()}
+        return {"ok": True, "database": str(store.db_path), "documents": len(_read_documents(document_root)), "browser": {"available": True, "engine": "safe-urllib-snapshot", "privateNetworkBlocked": True}, "artifactValidation": True, "anthropic": llm.status(), "codex": codex.status(), "activeJobs": supervisor.active_job_ids()}
 
     @app.get("/api/tools")
     def tools() -> dict[str, Any]:
@@ -261,22 +303,26 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
             return {"finalAnswer": result.text, "logs": ["Codex CLI bridge invoked"], "artifacts": [{"id": f"codex-{uuid4().hex[:8]}", "title": "Codex CLI 결과", "type": "codex-summary", "content": result.__dict__}]}
         raise HTTPException(status_code=404, detail="Unknown tool")
 
-    def create_and_enqueue_run(input_text: str, mode: str, *, conversation_id: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+    def create_and_enqueue_run(input_text: str, mode: str, *, conversation_id: str | None = None, display_text: str | None = None, context_matches: list[dict[str, Any]] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         _ensure_run_input_size(input_text)
         run = create_run(input_text, mode=mode)
         resolved_conversation_id = conversation_id or f"conv-{run['id'][:12]}"
         user_message_id = f"user-{run['id'][:12]}"
         assistant_message_id = f"msg-{run['id'][:12]}"
         run["runtime"]["conversation"] = {"id": resolved_conversation_id, "userMessageId": user_message_id, "assistantMessageId": assistant_message_id}
+        if context_matches:
+            run["runtime"]["retrieval"] = {"matches": context_matches, "count": len(context_matches)}
         store.save_run(run)
-        store.save_conversation(resolved_conversation_id, title=_conversation_title(input_text))
-        store.add_message(user_message_id, resolved_conversation_id, role="user", content=input_text, status="complete", run_id=run["id"])
+        store.save_conversation(resolved_conversation_id, title=_conversation_title(display_text or input_text))
+        store.add_message(user_message_id, resolved_conversation_id, role="user", content=display_text or input_text, status="complete", run_id=run["id"])
         store.add_message(assistant_message_id, resolved_conversation_id, role="assistant", content="", status="queued", run_id=run["id"])
         job = supervisor.enqueue_run(run["id"])
         run["runtime"]["jobId"] = job["id"]
         store.save_run(run)
         store.add_event(run["id"], "run.created", {"run": run})
         store.add_event(run["id"], "run.queued", {"run": run, "job": job})
+        if context_matches:
+            store.add_event(run["id"], "retrieval.context.attached", {"runId": run["id"], "matches": context_matches})
         return run, job
 
     @app.post("/api/tools/{tool_id}/invoke")
@@ -309,15 +355,17 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/chat")
     async def create_chat_message(payload: ChatMessageRequest) -> dict[str, Any]:
-        run, _job = create_and_enqueue_run(payload.message, payload.mode, conversation_id=payload.conversationId)
+        run_input, matches = _assemble_run_input(document_root, payload.message, payload.documentIds)
+        run, _job = create_and_enqueue_run(run_input, payload.mode, conversation_id=payload.conversationId, display_text=payload.message, context_matches=matches)
         conversation = run["runtime"]["conversation"]
-        return {"conversationId": conversation["id"], "userMessageId": conversation["userMessageId"], "assistantMessageId": conversation["assistantMessageId"], "runId": run["id"], "status": run["status"], "run": run}
+        return {"conversationId": conversation["id"], "userMessageId": conversation["userMessageId"], "assistantMessageId": conversation["assistantMessageId"], "runId": run["id"], "status": run["status"], "run": run, "retrieval": {"matches": matches}}
 
     @app.post("/api/conversations/{conversation_id}/messages")
     async def append_conversation_message(conversation_id: str, payload: ChatMessageRequest) -> dict[str, Any]:
-        run, _job = create_and_enqueue_run(payload.message, payload.mode, conversation_id=conversation_id)
+        run_input, matches = _assemble_run_input(document_root, payload.message, payload.documentIds)
+        run, _job = create_and_enqueue_run(run_input, payload.mode, conversation_id=conversation_id, display_text=payload.message, context_matches=matches)
         conversation = run["runtime"]["conversation"]
-        return {"conversationId": conversation["id"], "userMessageId": conversation["userMessageId"], "assistantMessageId": conversation["assistantMessageId"], "runId": run["id"], "status": run["status"], "run": run}
+        return {"conversationId": conversation["id"], "userMessageId": conversation["userMessageId"], "assistantMessageId": conversation["assistantMessageId"], "runId": run["id"], "status": run["status"], "run": run, "retrieval": {"matches": matches}}
 
     @app.get("/api/conversations")
     def list_conversations() -> dict[str, Any]:
@@ -344,6 +392,10 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
     def list_documents() -> dict[str, Any]:
         return {"documents": _read_documents(document_root)}
 
+    @app.get("/api/documents/search")
+    def search_documents(q: str) -> dict[str, Any]:
+        return {"results": _search_documents(document_root, q)}
+
     @app.get("/api/documents/{document_id}")
     def get_document(document_id: str) -> dict[str, Any]:
         document = _load_document(document_root, document_id)
@@ -351,17 +403,13 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Document not found")
         return {"document": document}
 
-    @app.get("/api/documents/search")
-    def search_documents(q: str) -> dict[str, Any]:
-        return {"results": _search_documents(document_root, q)}
-
     @app.post("/api/browser/snapshot")
     def browser_snapshot(payload: BrowserSnapshotRequest) -> dict[str, Any]:
         if payload.runId and not payload.approved:
             run = store.get_run(payload.runId)
             if not run:
                 raise HTTPException(status_code=404, detail="Run not found")
-            approval = {"id": f"approval-{uuid4().hex[:10]}", "type": "browser.snapshot", "url": payload.url, "status": "waiting", "createdAt": time()}
+            approval = {"id": f"approval-{uuid4().hex[:10]}", "type": "browser.snapshot", "url": payload.url, "status": "waiting", "createdAt": time(), "scope": "read-only"}
             run.setdefault("runtime", {})["approval"] = approval
             run["status"] = "waiting"
             _append_run_log(run, f"브라우저 스냅샷 승인 대기: {payload.url}")
@@ -403,7 +451,7 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
         if not approval or approval.get("id") != approval_id:
             raise HTTPException(status_code=404, detail="Approval not found")
         approval["status"] = "approved"
-        approval["input"] = (payload.input if payload else {})
+        approval["input"] = payload.input if payload else {}
         run.setdefault("runtime", {})["approval"] = approval
         if run["status"] == "waiting":
             run["status"] = "running"
@@ -436,6 +484,13 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
         if not store.get_run(run_id):
             raise HTTPException(status_code=404, detail="Run not found")
         return {"artifacts": store.list_artifacts(run_id)}
+
+    @app.get("/api/runs/{run_id}/artifacts/validate")
+    def validate_run_artifacts(run_id: str) -> dict[str, Any]:
+        if not store.get_run(run_id):
+            raise HTTPException(status_code=404, detail="Run not found")
+        artifacts = store.list_artifacts(run_id)
+        return {"validation": validate_artifacts(artifacts), "artifacts": artifacts}
 
     @app.get("/api/runs/{run_id}/artifacts/{artifact_id}/download")
     def download_artifact(run_id: str, artifact_id: str) -> Response:
