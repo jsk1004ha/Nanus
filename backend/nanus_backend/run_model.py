@@ -42,7 +42,7 @@ ARTIFACTS: dict[RunKind, list[tuple[str, str, str]]] = {
     "deck": [("outline", "목차", "outline"), ("pptx", "초안.pptx", "pptx")],
     "writing": [("writing-advice", "보고서 원고 확장 제안.md", "markdown")],
     "document": [("document", "문서 초안.md", "markdown")],
-    "spreadsheet": [("workbook", "분석 워크북.xls", "spreadsheet")],
+    "spreadsheet": [("workbook", "분석 워크북.xlsx", "spreadsheet")],
     "visualization": [("dashboard", "시각화.html", "visualization")],
     "research": [("brief", "리서치 브리프", "research-brief"), ("sources", "출처 목록", "citations")],
     "site": [("wireframe", "페이지 구조", "wireframe"), ("preview", "미리보기", "web")],
@@ -74,14 +74,14 @@ def detect_run_kind(command: str, prompt: str) -> RunKind:
     haystack = f"{command} {prompt}".lower()
     if command == "/deck-from-brief":
         return "deck"
-    if command in {"/document", "/doc", "/report"} or _has(haystack, ["보고서", "문서", "docx", "markdown", "원고"]):
-        return "document"
+    if _has(haystack, ["글 늘릴", "글늘릴", "늘릴방법", "늘릴 방법", "분량", "보강", "확장", "문단 추가", "문장 추가", "첨삭", "설득력 있게"]):
+        return "writing"
     if command in {"/spreadsheet", "/excel", "/xlsx"} or _has(haystack, ["엑셀", "excel", "xlsx", "스프레드시트", "워크북"]):
         return "spreadsheet"
     if command in {"/visualization", "/viz", "/chart", "/dashboard"} or _has(haystack, ["시각화", "차트", "그래프", "dashboard", "대시보드"]):
         return "visualization"
-    if _has(haystack, ["글 늘릴", "글늘릴", "늘릴방법", "늘릴 방법", "분량", "보강", "확장", "문단 추가", "문장 추가", "첨삭"]):
-        return "writing"
+    if command in {"/document", "/doc", "/report"} or _has(haystack, ["보고서", "문서", "docx", "markdown", "원고"]):
+        return "document"
     if _has(haystack, ["artifact-studio", "deck", "ppt", "pdf", "hwpx", "발표", "슬라이드"]):
         return "deck"
     if _has(haystack, ["site", "web", "웹사이트"]):
@@ -130,18 +130,4 @@ def create_run(input_text: str, *, mode: str = "local") -> dict[str, Any]:
     title = summarize_run_title(prompt, command, kind)
     steps = [{**step, "state": "pending"} for step in build_run_steps(kind, prompt, command)]
     now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-    return {
-        "id": uuid4().hex,
-        "title": title,
-        "prompt": prompt,
-        "command": command,
-        "kind": kind,
-        "status": "queued",
-        "worker": RUN_WORKERS[kind],
-        "progress": 0,
-        "startedAt": datetime.now().strftime("%H:%M"),
-        "steps": steps,
-        "artifacts": build_artifacts(kind, title),
-        "log": [f"{command} 명령을 수신했습니다.", f"{COMMAND_LABELS[kind]} 실행 그래프를 대기열에 등록했습니다."],
-        "runtime": {"source": "backend", "mode": mode, "createdAt": now},
-    }
+    return {"id": uuid4().hex, "title": title, "prompt": prompt, "command": command, "kind": kind, "status": "queued", "worker": RUN_WORKERS[kind], "progress": 0, "startedAt": datetime.now().strftime("%H:%M"), "steps": steps, "artifacts": build_artifacts(kind, title), "log": [f"{command} 명령을 수신했습니다.", f"{COMMAND_LABELS[kind]} 실행 그래프를 대기열에 등록했습니다."], "runtime": {"source": "backend", "mode": mode, "createdAt": now}}
