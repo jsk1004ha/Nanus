@@ -1,9 +1,67 @@
 import { useEffect, type Dispatch, type SetStateAction } from "react";
-import { Activity } from "lucide-react";
+import { Activity, Download, ExternalLink, FileText } from "lucide-react";
+import { backendApiUrl } from "./backendConfig";
 import { commandLabels } from "./runModel";
 import { advanceRun } from "./runProgress";
-import type { ActiveRun, PanelId } from "./types";
+import type { ActiveRun, Artifact, PanelId } from "./types";
 import "./run-workspace.css";
+
+function getArtifactDownloadMeta(artifact: Artifact) {
+  const download = artifact.content?.download;
+  return {
+    filename: artifact.fileName ?? download?.filename ?? download?.fileName ?? artifact.title,
+    sizeBytes: artifact.sizeBytes ?? download?.sizeBytes ?? download?.size,
+  };
+}
+
+function getArtifactDownloadUrl(run: ActiveRun, artifact: Artifact) {
+  if (artifact.downloadUrl) return backendApiUrl(artifact.downloadUrl);
+  if (run.source !== "backend") return "";
+  return backendApiUrl(`/api/runs/${encodeURIComponent(run.id)}/artifacts/${encodeURIComponent(artifact.id)}/download`);
+}
+
+function formatArtifactSize(sizeBytes?: number) {
+  if (!sizeBytes) return "";
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  return `${Math.round(sizeBytes / 102.4) / 10} KB`;
+}
+
+function RunArtifactCard({ run, artifact }: { run: ActiveRun; artifact: Artifact }) {
+  const meta = getArtifactDownloadMeta(artifact);
+  const downloadUrl = getArtifactDownloadUrl(run, artifact);
+
+  return (
+    <article className="active-run-artifact">
+      <div className="active-run-artifact-main">
+        <span className="artifact-mini-icon" aria-hidden="true">
+          <FileText />
+        </span>
+        <div>
+          <span>{artifact.type}</span>
+          <strong title={artifact.title}>{artifact.title}</strong>
+          {meta.sizeBytes ? <small>{formatArtifactSize(meta.sizeBytes)}</small> : null}
+        </div>
+      </div>
+      <div className="active-run-artifact-actions">
+        <button type="button" onClick={() => void import("./artifactActions").then(({ openArtifactOnline }) => openArtifactOnline(run, artifact))}>
+          <ExternalLink />
+          온라인 열기
+        </button>
+        {downloadUrl ? (
+          <a href={downloadUrl} target="_blank" rel="noreferrer" download={meta.filename}>
+            <Download />
+            다운로드
+          </a>
+        ) : (
+          <button type="button" onClick={() => void import("./artifactActions").then(({ downloadArtifact }) => downloadArtifact(run, artifact))}>
+            <Download />
+            다운로드
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
 
 export default function RunWorkspace({
   run,
@@ -64,7 +122,7 @@ export default function RunWorkspace({
     <section className="active-run-workspace" aria-label="Active run workspace">
       <div className="user-run-bubble" aria-label="User prompt">
         <span>요청</span>
-        <p>{run.prompt || run.command}</p>
+        <p title={run.prompt || run.command}>{run.prompt || run.command}</p>
       </div>
 
       <article className="agent-run-card">
@@ -82,7 +140,7 @@ export default function RunWorkspace({
         </header>
 
         <div className="agent-run-copy">
-          <h2>{run.title}</h2>
+          <h2 title={run.title}>{run.title}</h2>
           <p>
             {run.finalAnswer
               ? "Nanus가 최종 답변을 생성했습니다. 실행 로그와 산출물은 아래에서 확인할 수 있습니다."
@@ -168,10 +226,7 @@ export default function RunWorkspace({
 
         <div className="active-run-artifacts" aria-label="Run artifacts">
           {run.artifacts.map((artifact) => (
-            <button key={artifact.id} type="button" onClick={() => onOpenPanel("library")}>
-              <span>{artifact.type}</span>
-              <strong>{artifact.title}</strong>
-            </button>
+            <RunArtifactCard key={artifact.id} run={run} artifact={artifact} />
           ))}
         </div>
 

@@ -50,6 +50,7 @@
 }
 
 .artifact-type-icon svg,
+.artifact-open svg,
 .artifact-download svg,
 .artifact-checklist svg {
   width: 16px;
@@ -65,6 +66,15 @@
   line-height: 1.4;
 }
 
+.artifact-viewer-actions,
+.artifact-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.artifact-open,
 .artifact-download {
   display: inline-flex;
   gap: 6px;
@@ -73,12 +83,24 @@
   align-items: center;
   justify-content: center;
   border-radius: 10px;
-  background: var(--text);
-  color: var(--bg-strong);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-soft);
   font-size: 12px;
   font-weight: 840;
   text-decoration: none;
   white-space: nowrap;
+}
+
+.artifact-download {
+  border-color: transparent;
+  background: var(--text);
+  color: var(--bg-strong);
+}
+
+.artifact-open:hover,
+.artifact-download:hover {
+  filter: brightness(1.08);
 }
 
 .artifact-download span {
@@ -248,11 +270,14 @@
     grid-template-columns: 1fr;
   }
 
-  .artifact-viewer-header {
+  .artifact-viewer-header,
+  .artifact-card-actions,
+  .artifact-viewer-actions {
     align-items: stretch;
     flex-direction: column;
   }
 
+  .artifact-open,
   .artifact-download {
     width: 100%;
   }

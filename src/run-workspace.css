@@ -1,8 +1,8 @@
 .active-run-workspace {
   display: grid;
-  gap: 12px;
-  width: min(100%, 740px);
-  margin-top: 16px;
+  gap: 9px;
+  width: min(100%, 700px);
+  margin-top: 10px;
 }
 
 .user-run-bubble {
@@ -10,7 +10,7 @@
   display: grid;
   gap: 5px;
   max-width: min(82%, 520px);
-  padding: 12px 14px;
+  padding: 9px 12px;
   border: 1px solid var(--line);
   border-radius: 16px 16px 5px 16px;
   background: var(--surface-2);
@@ -24,15 +24,19 @@
 }
 
 .user-run-bubble p {
+  display: -webkit-box;
   margin: 0;
+  overflow: hidden;
   color: var(--text);
   font-size: 14px;
   font-weight: 690;
   line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .agent-run-card {
-  padding: 15px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
   background: var(--surface);
@@ -126,19 +130,23 @@
 }
 
 .agent-run-copy {
-  margin-top: 12px;
+  margin-top: 9px;
 }
 
 .agent-run-copy h2 {
+  display: -webkit-box;
   margin: 0;
+  overflow: hidden;
   color: var(--text);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 780;
   line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .agent-run-copy p {
-  margin: 7px 0 0;
+  margin: 5px 0 0;
   color: var(--text-soft);
   font-size: 13px;
   line-height: 1.5;
@@ -147,10 +155,10 @@
 .assistant-answer {
   display: grid;
   gap: 9px;
-  margin-top: 13px;
-  max-height: min(48vh, 520px);
+  margin-top: 10px;
+  max-height: min(34vh, 380px);
   overflow: auto;
-  padding: 13px;
+  padding: 12px;
   border: 1px solid color-mix(in srgb, var(--primary) 38%, var(--line));
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--primary) 8%, var(--surface-2));
@@ -183,13 +191,13 @@
 .agent-run-metrics {
   display: grid;
   grid-template-columns: 1.4fr 0.8fr 0.8fr;
-  gap: 8px;
-  margin-top: 12px;
+  gap: 6px;
+  margin-top: 9px;
 }
 
 .agent-run-metrics span {
   min-width: 0;
-  padding: 10px;
+  padding: 7px 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-2);
@@ -211,7 +219,7 @@
 }
 
 .agent-run-metrics small {
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--muted);
   font-size: 11px;
 }
@@ -219,13 +227,13 @@
 .agent-runtime-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-top: 7px;
 }
 
 .agent-runtime-grid span {
   min-width: 0;
-  padding: 9px;
+  padding: 7px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--surface-2) 82%, transparent);
@@ -248,34 +256,34 @@
 }
 
 .agent-runtime-grid strong {
-  margin-top: 4px;
+  margin-top: 3px;
   color: var(--text);
   font-size: 12px;
   font-style: normal;
 }
 
 .agent-runtime-grid em {
-  margin-top: 4px;
+  margin-top: 3px;
   color: var(--muted);
   font-size: 11px;
   font-style: normal;
 }
 
 .active-run-progress {
-  margin: 12px 0 0;
+  margin: 9px 0 0;
   background: var(--surface-2);
 }
 
 .active-run-timeline {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin: 14px 0 0;
+  gap: 7px;
+  margin: 10px 0 0;
 }
 
 .active-run-timeline li {
   grid-template-columns: 14px minmax(0, 1fr);
   min-width: 0;
-  padding: 10px;
+  padding: 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-2);
@@ -284,8 +292,10 @@
 .active-run-log {
   display: grid;
   gap: 7px;
-  margin-top: 12px;
-  padding: 11px;
+  max-height: 104px;
+  margin-top: 9px;
+  overflow: auto;
+  padding: 9px;
   border-radius: var(--radius-md);
   background: var(--bg-strong);
 }
@@ -304,17 +314,19 @@
 
 .active-run-artifacts {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 9px;
 }
 
-.active-run-artifacts button {
+.active-run-artifact {
   display: grid;
-  gap: 5px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
   min-width: 0;
   min-height: 58px;
-  padding: 10px;
+  padding: 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-2);
@@ -322,30 +334,93 @@
   text-align: left;
 }
 
-.active-run-artifacts button:hover,
+.active-run-artifact-main {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.artifact-mini-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+  color: var(--primary);
+}
+
+.artifact-mini-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.active-run-artifact-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.active-run-artifact-actions a,
+.active-run-artifact-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 31px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.active-run-artifact-actions a:hover,
+.active-run-artifact-actions button:hover,
 .active-run-actions button:hover {
   background: color-mix(in srgb, var(--text) 7%, transparent);
 }
 
-.active-run-artifacts span {
+.active-run-artifact-actions svg {
+  width: 14px;
+  height: 14px;
+}
+
+.active-run-artifact-main span {
   color: var(--primary);
   font-size: 11px;
   font-weight: 820;
   text-transform: uppercase;
 }
 
-.active-run-artifacts strong {
+.active-run-artifact-main strong,
+.active-run-artifact-main small {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.active-run-artifact-main strong {
   font-size: 13px;
+}
+
+.active-run-artifact-main small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .active-run-actions {
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 9px;
 }
 
 .active-run-actions button {
@@ -392,8 +467,19 @@
   .agent-run-metrics,
   .agent-runtime-grid,
   .active-run-timeline,
-  .active-run-artifacts {
+  .active-run-artifacts,
+  .active-run-artifact {
     grid-template-columns: 1fr;
+  }
+
+  .active-run-artifact-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .active-run-artifact-actions a,
+  .active-run-artifact-actions button {
+    justify-content: center;
   }
 
   .active-run-actions button {

@@ -1,4 +1,4 @@
-import { Download, FileText, GitBranch, Presentation, ShieldCheck } from "lucide-react";
+import { Download, ExternalLink, FileText, GitBranch, Presentation, ShieldCheck } from "lucide-react";
 import { backendApiUrl } from "./backendConfig";
 import type { ActiveRun, Artifact, ArtifactContent } from "./types";
 import "./artifact-viewer.css";
@@ -30,7 +30,7 @@ function getSlides(content?: ArtifactContent): SlidePreview[] {
   }));
 }
 
-function getDownloadMeta(artifact: Artifact) {
+function getArtifactDownloadMeta(artifact: Artifact) {
   const download = artifact.content?.download;
   return {
     filename: artifact.fileName ?? download?.filename ?? download?.fileName ?? artifact.title,
@@ -39,26 +39,27 @@ function getDownloadMeta(artifact: Artifact) {
   };
 }
 
-function getDownloadUrl(run: ActiveRun, artifact: Artifact) {
+function getArtifactDownloadUrl(run: ActiveRun, artifact: Artifact) {
   if (artifact.downloadUrl) return backendApiUrl(artifact.downloadUrl);
   if (run.source !== "backend") return "";
   return backendApiUrl(`/api/runs/${encodeURIComponent(run.id)}/artifacts/${encodeURIComponent(artifact.id)}/download`);
 }
 
-function formatSize(sizeBytes?: number) {
+function formatArtifactSize(sizeBytes?: number) {
   if (!sizeBytes) return "";
   if (sizeBytes < 1024) return `${sizeBytes} B`;
   return `${Math.round(sizeBytes / 102.4) / 10} KB`;
 }
 
 function ArtifactDownloadAction({ run, artifact }: { run: ActiveRun; artifact: Artifact }) {
-  const url = getDownloadUrl(run, artifact);
-  const meta = getDownloadMeta(artifact);
+  const url = getArtifactDownloadUrl(run, artifact);
+  const meta = getArtifactDownloadMeta(artifact);
   if (!url) {
     return (
-      <button className="artifact-download" type="button" disabled>
+      <button className="artifact-download" type="button" onClick={() => void import("./artifactActions").then(({ downloadArtifact }) => downloadArtifact(run, artifact))}>
         <Download />
-        로컬 미리보기
+        다운로드
+        {meta.sizeBytes ? <span>{formatArtifactSize(meta.sizeBytes)}</span> : null}
       </button>
     );
   }
@@ -66,8 +67,26 @@ function ArtifactDownloadAction({ run, artifact }: { run: ActiveRun; artifact: A
     <a className="artifact-download" href={url} target="_blank" rel="noreferrer" download={meta.filename}>
       <Download />
       다운로드
-      {meta.sizeBytes ? <span>{formatSize(meta.sizeBytes)}</span> : null}
+      {meta.sizeBytes ? <span>{formatArtifactSize(meta.sizeBytes)}</span> : null}
     </a>
+  );
+}
+
+function ArtifactOpenAction({ run, artifact }: { run: ActiveRun; artifact: Artifact }) {
+  return (
+    <button className="artifact-open" type="button" onClick={() => void import("./artifactActions").then(({ openArtifactOnline }) => openArtifactOnline(run, artifact))}>
+      <ExternalLink />
+      온라인 열기
+    </button>
+  );
+}
+
+function ArtifactActions({ run, artifact }: { run: ActiveRun; artifact: Artifact }) {
+  return (
+    <div className="artifact-card-actions">
+      <ArtifactOpenAction run={run} artifact={artifact} />
+      <ArtifactDownloadAction run={run} artifact={artifact} />
+    </div>
   );
 }
 
@@ -167,7 +186,7 @@ function renderGeneric(artifact: Artifact) {
 }
 
 function ArtifactCard({ run, artifact }: { run: ActiveRun; artifact: Artifact }) {
-  const meta = getDownloadMeta(artifact);
+  const meta = getArtifactDownloadMeta(artifact);
   const slides = getSlides(artifact.content);
   const isPptx = artifact.type === "pptx";
   const isOutline = artifact.type === "outline";
@@ -186,10 +205,10 @@ function ArtifactCard({ run, artifact }: { run: ActiveRun; artifact: Artifact })
           <small>
             {artifact.type}
             {meta.mimeType ? ` · ${meta.mimeType.split("/").pop()}` : ""}
-            {meta.sizeBytes ? ` · ${formatSize(meta.sizeBytes)}` : ""}
+            {meta.sizeBytes ? ` · ${formatArtifactSize(meta.sizeBytes)}` : ""}
           </small>
         </div>
-        {isPptx ? <ArtifactDownloadAction run={run} artifact={artifact} /> : null}
+        <ArtifactActions run={run} artifact={artifact} />
       </header>
       {isPptx ? renderSlides(slides) : isOutline ? renderOutline(artifact) : isGraph ? renderGraph(artifact) : isResearch ? renderResearch(artifact) : renderGeneric(artifact)}
     </article>
@@ -206,7 +225,7 @@ export function ArtifactViewer({ run }: { run: ActiveRun }) {
           <span className="eyebrow">Artifact Viewer</span>
           <strong>{artifacts.length ? `${artifacts.length}개 산출물` : "산출물 대기"}</strong>
         </div>
-        {pptxArtifact ? <ArtifactDownloadAction run={run} artifact={pptxArtifact} /> : null}
+        {pptxArtifact ? <ArtifactActions run={run} artifact={pptxArtifact} /> : null}
       </div>
       {artifacts.length ? (
         <div className="artifact-card-list">

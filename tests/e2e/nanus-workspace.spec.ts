@@ -26,6 +26,15 @@ test("sending a short prompt starts a visible Manus-like execution", async ({ pa
   await expect.poll(async () => Number(await worklog.getByTestId("run-progress-value").textContent())).toBeGreaterThan(60);
   await expect.poll(async () => (await worklog.getByTestId("run-status").textContent())?.trim()).toBe("완료됨");
   await expect(worklog.getByText("완료: 결과 작성")).toBeVisible();
+  const artifactRegion = worklog.getByLabel("Run artifacts");
+  await expect(artifactRegion.getByRole("button", { name: /온라인 열기/ }).first()).toBeVisible();
+  await expect(artifactRegion.getByText("다운로드").first()).toBeVisible();
+  const popupPromise = page.waitForEvent("popup");
+  await artifactRegion.getByRole("button", { name: /온라인 열기/ }).first().click();
+  const artifactPopup = await popupPromise;
+  await artifactPopup.waitForLoadState("domcontentloaded");
+  await expect(artifactPopup.locator("body")).toContainText("안녕 결과");
+  await artifactPopup.close();
 
   await worklog.getByRole("button", { name: "실행 기록" }).click();
   const inspector = page.getByLabel("Current run inspector");

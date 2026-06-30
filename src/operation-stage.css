@@ -2,12 +2,12 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-height: calc(100vh - 52px);
-  padding: 18px clamp(16px, 4vw, 44px) 16px;
+  padding: 12px clamp(16px, 4vw, 44px) 14px;
 }
 
 .operation-bar,
 .operation-composer {
-  width: min(100%, 820px);
+  width: min(100%, 760px);
   margin: 0 auto;
 }
 
@@ -71,23 +71,23 @@
   justify-items: center;
   min-height: 0;
   overflow: auto;
-  padding: 12px 0 18px;
+  padding: 8px 0 14px;
 }
 
 .operation-stage .active-run-workspace {
-  width: min(100%, 860px);
+  width: min(100%, 720px);
   margin-top: 0;
 }
 
 .operation-stage .user-run-bubble {
   justify-self: center;
-  max-width: min(92%, 620px);
+  max-width: min(88%, 560px);
   border-radius: 14px;
 }
 
 .operation-stage .agent-run-card {
-  border-color: transparent;
-  background: transparent;
+  border-color: color-mix(in srgb, var(--line) 72%, transparent);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
   box-shadow: none;
 }
 
@@ -102,7 +102,7 @@
 .operation-composer {
   position: relative;
   z-index: 3;
-  min-height: 96px;
+  min-height: 88px;
   border-radius: var(--radius-xl);
   box-shadow: 0 16px 52px rgba(0, 0, 0, 0.24);
 }
