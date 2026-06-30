@@ -5,6 +5,7 @@ import { commandLabels } from "./runModel";
 import { advanceRun } from "./runProgress";
 import type { ActiveRun, Artifact, PanelId } from "./types";
 import "./run-workspace.css";
+import "./agent-phase.css";
 
 interface AgentPhase {
   id: string;
