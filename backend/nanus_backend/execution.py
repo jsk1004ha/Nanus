@@ -5,7 +5,16 @@ from typing import Any
 
 from .codex_bridge import CodexBridge
 from .llm import AnthropicMessagesClient
-from .tooling import deck_from_brief, generic_llm_result, writing_advice
+from .tooling import (
+    artifact_studio_bundle,
+    deck_from_brief,
+    document_from_prompt,
+    generic_llm_result,
+    research_brief,
+    spreadsheet_from_prompt,
+    visualization_from_prompt,
+    writing_advice,
+)
 from .storage import RunStore
 
 
@@ -14,86 +23,60 @@ def _append_log(run: dict[str, Any], line: str) -> None:
         run["log"].append(line)
 
 
-def _step_progress(run: dict[str, Any], active_index: int) -> int:
-    steps = run.get("steps", [])
-    if not steps:
-        return max(1, int(run.get("progress", 0)))
-    total = max(1, len(steps))
-    safe_index = max(0, min(total - 1, active_index))
-    # Progress is derived from the actual run graph instead of the old 34→56→82→100 demo sequence.
-    return max(1, min(92, round(((safe_index + 0.5) / total) * 88)))
-
-
-def _set_active_step(run: dict[str, Any], active_index: int) -> None:
+def _set_step(run: dict[str, Any], active_index: int) -> None:
     steps = run.get("steps", [])
     if not steps:
         return
-    safe_index = max(0, min(len(steps) - 1, active_index))
+    safe = max(0, min(len(steps) - 1, active_index))
     for index, step in enumerate(steps):
-        step["state"] = "done" if index < safe_index else "active" if index == safe_index else "pending"
-    run["progress"] = max(int(run.get("progress", 0)), _step_progress(run, safe_index))
+        step["state"] = "done" if index < safe else "active" if index == safe else "pending"
+    run["progress"] = max(int(run.get("progress", 0)), min(92, round(((safe + 0.5) / max(1, len(steps))) * 88)))
 
 
-def _mark_all_steps_done(run: dict[str, Any]) -> None:
+def _finish_steps(run: dict[str, Any]) -> None:
     for step in run.get("steps", []):
         step["state"] = "done"
     run["progress"] = 100
 
 
-def _newly_done_titles(previous: list[dict[str, Any]], current: list[dict[str, Any]]) -> list[str]:
-    previous_done = {step["id"] for step in previous if step.get("state") == "done"}
-    return [step["title"] for step in current if step.get("state") == "done" and step.get("id") not in previous_done]
-
-
-def _final_answer(adapter_result: dict[str, Any]) -> str:
-    final_answer = str(adapter_result.get("finalAnswer") or "").strip()
-    if len(final_answer) < 20:
+def _answer(result: dict[str, Any]) -> str:
+    text = str(result.get("finalAnswer") or "").strip()
+    if len(text) < 20:
         raise RuntimeError("Assistant final answer is missing")
-    return final_answer
+    return text
 
 
-def _download_integrity_ok(artifact: dict[str, Any]) -> bool:
+def _download_ok(artifact: dict[str, Any]) -> bool:
     content = artifact.get("content")
     if not isinstance(content, dict):
         return True
     download = content.get("download")
     if not isinstance(download, dict):
         return True
-    return bool(download.get("filename")) and bool(download.get("mimeType")) and isinstance(download.get("size"), int) and download["size"] > 0
+    return bool(download.get("filename")) and bool(download.get("mimeType")) and int(download.get("size") or 0) > 0
 
 
-def _artifact_integrity_ok(artifacts: list[dict[str, Any]]) -> bool:
-    return all(
-        bool(artifact.get("id"))
-        and bool(artifact.get("title"))
-        and bool(artifact.get("type"))
-        and _download_integrity_ok(artifact)
-        for artifact in artifacts
-    )
-
-
-def _normalize_verification(adapter_result: dict[str, Any], *, final_answer: str, artifacts: list[dict[str, Any]]) -> dict[str, Any]:
-    raw = adapter_result.get("verification") if isinstance(adapter_result.get("verification"), dict) else {}
+def _verify(result: dict[str, Any], final_answer: str, artifacts: list[dict[str, Any]]) -> dict[str, Any]:
+    raw = result.get("verification") if isinstance(result.get("verification"), dict) else {}
     errors = [str(item) for item in raw.get("errors", []) if str(item).strip()]
     warnings = [str(item) for item in raw.get("warnings", []) if str(item).strip()]
-    fallback_used = bool(raw.get("fallbackUsed"))
-    final_answer_present = bool(final_answer.strip())
-    artifact_integrity_ok = _artifact_integrity_ok(artifacts)
-    if not final_answer_present:
+    fallback = bool(raw.get("fallbackUsed"))
+    artifacts_ok = all(_download_ok(artifact) for artifact in artifacts)
+    if not final_answer:
         errors.append("finalAnswer is missing")
-    if not artifact_integrity_ok:
+    if not artifacts_ok:
         errors.append("artifact integrity check failed")
-    if fallback_used and not any("fallback" in warning.lower() or "제한" in warning for warning in warnings):
-        warnings.append("실제 LLM/도구 대신 제한 실행 fallback을 사용했습니다.")
-    status = "failed" if errors else "degraded" if fallback_used else "verified"
+    if fallback and not warnings:
+        warnings.append("fallback runtime used")
     return {
         "backendUsed": bool(raw.get("backendUsed", True)),
         "llmUsed": bool(raw.get("llmUsed", False)),
-        "fallbackUsed": fallback_used,
-        "status": status,
-        "finalAnswerPresent": final_answer_present,
-        "artifactIntegrityOk": artifact_integrity_ok,
+        "fallbackUsed": fallback,
+        "status": "failed" if errors else "degraded" if fallback else "verified",
+        "finalAnswerPresent": bool(final_answer),
+        "artifactIntegrityOk": artifacts_ok,
         "traceClosed": True,
+        "streaming": True,
         "errors": errors,
         "warnings": warnings,
     }
@@ -104,6 +87,33 @@ def _assistant_message_id(run: dict[str, Any]) -> str | None:
     conversation = runtime.get("conversation") if isinstance(runtime.get("conversation"), dict) else {}
     message_id = conversation.get("assistantMessageId")
     return str(message_id) if message_id else None
+
+
+def _chunks(text: str) -> list[str]:
+    parts: list[str] = []
+    buf = ""
+    for token in text.split(" "):
+        next_buf = f"{buf} {token}" if buf else token
+        if len(next_buf) > 180:
+            parts.append(next_buf)
+            buf = ""
+        else:
+            buf = next_buf
+    if buf:
+        parts.append(buf)
+    return parts or [text]
+
+
+def _subtasks(kind: str) -> list[dict[str, Any]]:
+    names = {
+        "research": ["scope", "sources", "synthesis"],
+        "deck": ["story", "render", "slide-qa"],
+        "document": ["outline", "draft", "doc-qa"],
+        "spreadsheet": ["schema", "workbook", "checks"],
+        "visualization": ["question", "chart", "caption"],
+        "app": ["scope", "code", "test"],
+    }.get(kind, ["plan", "execute", "verify"])
+    return [{"id": name, "owner": name.title(), "status": "pending"} for name in names]
 
 
 class ExecutionEngine:
@@ -121,166 +131,133 @@ class ExecutionEngine:
         if not run:
             self.store.update_job(job_id, "failed", error=f"run {run_id} not found")
             return
-        if run["status"] == "cancelled":
-            self._update_assistant_message(run, status="cancelled", content="실행이 취소되었습니다.")
-            self.store.update_job(job_id, "cancelled")
-            return
-
         try:
             run["status"] = "running"
-            run.setdefault("runtime", {})["agentLoop"] = []
-            _append_log(run, "백그라운드 작업자가 실행을 시작했습니다.")
-            _append_log(run, "Agent loop: Planner → Tool Executor → Verifier → Artifact handoff")
-            self._update_assistant_message(run, status="running")
+            runtime = run.setdefault("runtime", {})
+            runtime["agentLoop"] = []
+            runtime["subtasks"] = _subtasks(str(run.get("kind") or "general"))
+            _append_log(run, "Agent runtime started.")
+            self._update_message(run, status="running")
             self._persist_and_emit(run, "run.started")
+            self._event(run_id, "subtasks.created", {"runId": run_id, "subtasks": runtime["subtasks"]})
 
-            run = await self._enter_phase(run_id, job_id, phase_id="plan", title="Planner", detail="요구사항을 실행 그래프로 분해합니다.", step_index=0)
+            run = await self._phase(run_id, job_id, "plan", "Planner", "작업을 하위 실행 단위로 나눕니다.", 0)
             if not run:
                 return
-            run = await self._enter_phase(run_id, job_id, phase_id="execute", title="Tool Executor", detail="선택된 LLM/스킬/코드 도구를 실행합니다.", step_index=min(1, len(run.get("steps", [])) - 1))
+            self._mark_subtasks(run, "planned")
+            self._persist_and_emit(run, "subtasks.updated")
+
+            run = await self._phase(run_id, job_id, "execute", "Tool Executor", "선택한 도구와 산출물 생성기를 실행합니다.", min(1, len(run.get("steps", [])) - 1))
             if not run:
                 return
+            result = await self._execute_adapter(run)
+            final = _answer(result)
+            artifacts = [artifact for artifact in result.get("artifacts", []) if isinstance(artifact, dict)]
 
-            adapter_result = await self._execute_adapter(run)
-            final_answer = _final_answer(adapter_result)
-            run = self.store.get_run(run_id)
-            if not run or run["status"] == "cancelled":
-                self.store.update_job(job_id, "cancelled")
-                return
-
-            run["finalAnswer"] = final_answer
-            run["resultType"] = str(adapter_result.get("resultType") or run.get("kind") or "answer")
-            run["verification"] = _normalize_verification(
-                adapter_result,
-                final_answer=final_answer,
-                artifacts=[artifact for artifact in adapter_result.get("artifacts", []) if isinstance(artifact, dict)],
-            )
+            run = self.store.get_run(run_id) or run
+            run["resultType"] = str(result.get("resultType") or run.get("kind") or "answer")
+            run["verification"] = _verify(result, final, artifacts)
             if run["verification"]["status"] == "failed":
-                raise RuntimeError("; ".join(run["verification"]["errors"]) or "Result contract validation failed")
-            message_status = "degraded" if run["verification"]["status"] == "degraded" else "complete"
-            self._update_assistant_message(run, content=final_answer, status=message_status)
-            for line in adapter_result.get("logs", []):
+                raise RuntimeError("; ".join(run["verification"]["errors"]))
+            await self._stream_answer(run, final)
+            run = self.store.get_run(run_id) or run
+            run["finalAnswer"] = final
+            self._update_message(run, content=final, status="degraded" if run["verification"]["status"] == "degraded" else "complete")
+            for line in result.get("logs", []):
                 _append_log(run, line)
-            _append_log(run, "최종 답변 contract: finalAnswer 검증 완료")
 
-            persisted_artifacts: list[dict[str, Any]] = []
-            for artifact in adapter_result.get("artifacts", []):
+            stored_artifacts: list[dict[str, Any]] = []
+            for artifact in artifacts:
                 stored = self.store.add_artifact(run_id, artifact)
-                persisted_artifacts.append(stored)
+                stored_artifacts.append(stored)
                 self._event(run_id, "artifact.created", {"runId": run_id, "artifact": stored})
-
-            if persisted_artifacts:
-                persisted_ids = {artifact.get("id") for artifact in persisted_artifacts}
-                persisted_types = {artifact.get("type") for artifact in persisted_artifacts}
-                run["artifacts"] = [
-                    artifact
-                    for artifact in run.get("artifacts", [])
-                    if artifact.get("id") not in persisted_ids and artifact.get("type") not in persisted_types
-                ] + persisted_artifacts
-            self._event(
-                run_id,
-                "assistant.message.completed",
-                {
-                    "runId": run_id,
-                    "assistantMessageId": _assistant_message_id(run),
-                    "finalAnswer": final_answer,
-                    "resultType": run.get("resultType"),
-                    "verification": run.get("verification"),
-                },
-            )
+            if stored_artifacts:
+                ids = {artifact.get("id") for artifact in stored_artifacts}
+                types = {artifact.get("type") for artifact in stored_artifacts}
+                run["artifacts"] = [artifact for artifact in run.get("artifacts", []) if artifact.get("id") not in ids and artifact.get("type") not in types] + stored_artifacts
+            self._event(run_id, "assistant.message.completed", {"runId": run_id, "assistantMessageId": _assistant_message_id(run), "finalAnswer": final, "resultType": run.get("resultType"), "verification": run.get("verification")})
+            self._mark_subtasks(run, "completed")
             self._persist_and_emit(run)
 
-            run = await self._enter_phase(run_id, job_id, phase_id="verify", title="Verifier", detail="finalAnswer, artifact, fallback 상태를 검증합니다.", step_index=max(0, len(run.get("steps", [])) - 1))
+            run = await self._phase(run_id, job_id, "verify", "Verifier", "답변과 산출물 무결성을 확인합니다.", max(0, len(run.get("steps", [])) - 1))
             if not run:
                 return
-
-            previous_steps = [dict(step) for step in run.get("steps", [])]
-            _mark_all_steps_done(run)
-            for title in _newly_done_titles(previous_steps, run.get("steps", [])):
-                _append_log(run, f"완료: {title}")
-            verification_status = str(run.get("verification", {}).get("status") or "verified")
-            run["status"] = "degraded" if verification_status == "degraded" else "complete"
-            if run["status"] == "degraded":
-                _append_log(run, "제한 실행으로 종료되었습니다. 답변은 제공되었지만 fallback 또는 일부 제한이 있습니다.")
-            else:
-                _append_log(run, "실행이 완료되었습니다.")
-            phase = self._record_phase(run, phase_id="deliver", title="Artifact Handoff", detail="답변과 산출물을 사용자에게 전달했습니다.")
+            _finish_steps(run)
+            run["status"] = "degraded" if run.get("verification", {}).get("status") == "degraded" else "complete"
+            _append_log(run, "제한 실행으로 종료되었습니다." if run["status"] == "degraded" else "실행이 완료되었습니다.")
+            self._record_phase(run, phase_id="deliver", title="Artifact Handoff", detail="답변과 산출물을 전달했습니다.")
             self._persist_and_emit(run)
-            self._event(run_id, "agent.phase", {"run": run, "phase": phase})
             self.store.update_job(job_id, run["status"])
             self._event(run_id, "run.done" if run["status"] == "complete" else "run.degraded", {"run": run})
         except Exception as exc:
-            failed_run = self.store.get_run(run_id)
-            if failed_run:
-                failed_run["status"] = "failed"
-                _append_log(failed_run, f"실행 실패: {exc}")
-                self._update_assistant_message(failed_run, status="failed", content=f"실행 실패: {exc}")
-                self._persist_and_emit(failed_run, "run.failed")
+            failed = self.store.get_run(run_id)
+            if failed:
+                failed["status"] = "failed"
+                _append_log(failed, f"실행 실패: {exc}")
+                self._update_message(failed, status="failed", content=f"실행 실패: {exc}")
+                self._persist_and_emit(failed, "run.failed")
             self.store.update_job(job_id, "failed", error=str(exc))
 
     async def _execute_adapter(self, run: dict[str, Any]) -> dict[str, Any]:
         prompt = run.get("prompt") or run.get("command") or run.get("title") or ""
         command = run.get("command", "/run")
         kind = run.get("kind", "general")
-        if self.codex.should_handle(command, prompt, kind) or (self.codex.enabled and kind != "deck"):
-            return await self._codex_adapter_result(run, prompt, kind)
+        if self.codex.should_handle(command, prompt, kind):
+            return await self._codex_result(run, prompt, kind)
+        if command in {"/artifact-studio", "/artifact"}:
+            return await artifact_studio_bundle(prompt, self.llm)
         if kind == "writing":
             return await writing_advice(prompt, self.llm)
-        if command in {"/deck-from-brief", "/artifact-studio"} or kind == "deck":
+        if kind == "document":
+            return await document_from_prompt(prompt, self.llm)
+        if kind == "spreadsheet":
+            return await spreadsheet_from_prompt(prompt, self.llm)
+        if kind == "visualization":
+            return await visualization_from_prompt(prompt, self.llm)
+        if kind == "research":
+            return await research_brief(prompt, self.llm)
+        if kind == "deck":
             return await deck_from_brief(prompt, self.llm)
         return await generic_llm_result(prompt, self.llm)
 
-    async def _codex_adapter_result(self, run: dict[str, Any], prompt: str, kind: str) -> dict[str, Any]:
-        task_prompt = prompt or run.get("title") or run.get("command") or "Nanus task"
-        if kind == "writing":
-            task_prompt = (
-                "한국어 보고서 작성 코치로 답변하세요. 전체 진단, 섹션별 보강 방향, 바로 붙여넣을 수 있는 추가 문단 예시, "
-                "피해야 할 방식을 포함하세요.\n\n"
-                f"사용자 요청:\n{task_prompt}"
-            )
-        elif kind not in {"app", "site"}:
-            task_prompt = (
-                "Nanus assistant로서 사용자의 요청에 바로 도움이 되는 한국어 최종 답변을 작성하세요. "
-                "필요하면 작업 계획과 다음 행동을 짧게 포함하되, 실제 파일 변경이 필요 없는 경우 변경하지 마세요.\n\n"
-                f"사용자 요청:\n{task_prompt}"
-            )
-        codex_result = await self.codex.run(task_prompt)
-        result_type = "code_patch" if codex_result.live and kind in {"app", "site"} else "codex_answer"
-        artifact_type = "codex-summary" if kind in {"app", "site"} else "assistant-answer"
+    async def _codex_result(self, run: dict[str, Any], prompt: str, kind: str) -> dict[str, Any]:
+        result = await self.codex.run(prompt or run.get("title") or "Nanus task")
         return {
-            "finalAnswer": codex_result.text,
-            "resultType": result_type,
-            "verification": {
-                "backendUsed": True,
-                "llmUsed": codex_result.live,
-                "fallbackUsed": not codex_result.live,
-                "errors": [],
-                "warnings": [] if codex_result.live else ["Codex live 실행 대신 deterministic fallback을 사용했습니다."],
-            },
-            "logs": [
-                f"Codex Bridge: {'live codex exec' if codex_result.live else 'deterministic fallback'}",
-                *( [f"Codex Bridge note: {codex_result.error}"] if codex_result.error else [] ),
-            ],
-            "artifacts": [
-                {
-                    "id": f"codex-{run['id'][:8]}",
-                    "title": f"{run['title']} Codex 결과",
-                    "type": artifact_type,
-                    "content": {"text": codex_result.text, "live": codex_result.live, "command": codex_result.command},
-                }
-            ],
+            "finalAnswer": result.text,
+            "resultType": "code_patch" if result.live and kind in {"app", "site"} else "codex_answer",
+            "verification": {"backendUsed": True, "llmUsed": result.live, "fallbackUsed": not result.live, "errors": [], "warnings": [] if result.live else ["Codex fallback used"]},
+            "logs": [f"Codex Bridge: {'live codex exec' if result.live else 'deterministic fallback'}"],
+            "artifacts": [{"id": f"codex-{run['id'][:8]}", "title": f"{run['title']} Codex 결과", "type": "codex-summary", "content": {"text": result.text, "live": result.live, "command": result.command}}],
         }
 
-    def _persist_run(self, run: dict[str, Any]) -> None:
-        self.store.save_run(run)
+    async def _stream_answer(self, run: dict[str, Any], final_answer: str) -> None:
+        run_id = str(run["id"])
+        message_id = _assistant_message_id(run)
+        partial = ""
+        for index, chunk in enumerate(_chunks(final_answer), start=1):
+            current = self.store.get_run(run_id) or run
+            if current.get("status") == "cancelled":
+                return
+            partial = f"{partial} {chunk}".strip() if partial else chunk
+            current["finalAnswer"] = partial
+            self.store.save_run(current)
+            if message_id:
+                self.store.update_message(message_id, content=partial, status="streaming")
+            self._event(run_id, "assistant.message.delta", {"run": current, "delta": chunk, "content": partial, "index": index})
+            await asyncio.sleep(0.01)
 
-    def _update_assistant_message(self, run: dict[str, Any], *, status: str | None = None, content: str | None = None) -> None:
+    def _mark_subtasks(self, run: dict[str, Any], status: str) -> None:
+        runtime = run.setdefault("runtime", {})
+        subtasks = runtime.get("subtasks") if isinstance(runtime.get("subtasks"), list) else []
+        runtime["subtasks"] = [{**dict(item), "status": status} for item in subtasks if isinstance(item, dict)]
+
+    def _update_message(self, run: dict[str, Any], *, status: str | None = None, content: str | None = None) -> None:
         message_id = _assistant_message_id(run)
         if message_id:
             self.store.update_message(message_id, status=status, content=content)
 
     def _persist_and_emit(self, run: dict[str, Any], event_type: str = "run.updated") -> dict[str, Any]:
-        self._persist_run(run)
+        self.store.save_run(run)
         return self._event(run["id"], event_type, {"run": run})
 
     def _event(self, run_id: str, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -288,35 +265,22 @@ class ExecutionEngine:
 
     def _record_phase(self, run: dict[str, Any], *, phase_id: str, title: str, detail: str) -> dict[str, Any]:
         runtime = run.setdefault("runtime", {})
-        raw_loop = runtime.get("agentLoop")
-        agent_loop: list[dict[str, Any]] = raw_loop if isinstance(raw_loop, list) else []
-        phase = {
-            "id": phase_id,
-            "title": title,
-            "detail": detail,
-            "progress": int(run.get("progress", 0)),
-            "index": len(agent_loop) + 1,
-        }
-        agent_loop.append(phase)
-        runtime["agentLoop"] = agent_loop
+        loop = runtime.get("agentLoop") if isinstance(runtime.get("agentLoop"), list) else []
+        phase = {"id": phase_id, "title": title, "detail": detail, "progress": int(run.get("progress", 0)), "index": len(loop) + 1}
+        loop.append(phase)
+        runtime["agentLoop"] = loop
         _append_log(run, f"Agent phase: {title} — {detail}")
         return phase
 
-    async def _enter_phase(self, run_id: str, job_id: str, *, phase_id: str, title: str, detail: str, step_index: int) -> dict[str, Any] | None:
+    async def _phase(self, run_id: str, job_id: str, phase_id: str, title: str, detail: str, step_index: int) -> dict[str, Any] | None:
         await self._checkpoint(run_id, job_id)
         run = self.store.get_run(run_id)
-        if not run or run["status"] == "cancelled":
+        if not run or run.get("status") == "cancelled":
             self.store.update_job(job_id, "cancelled")
             return None
-        previous_steps = [dict(step) for step in run.get("steps", [])]
-        _set_active_step(run, step_index)
-        for done_title in _newly_done_titles(previous_steps, run.get("steps", [])):
-            _append_log(run, f"완료: {done_title}")
-        active = next((step for step in run.get("steps", []) if step.get("state") == "active"), None)
-        if active:
-            _append_log(run, f"현재 단계: {active['title']}")
+        _set_step(run, step_index)
         phase = self._record_phase(run, phase_id=phase_id, title=title, detail=detail)
-        self._persist_run(run)
+        self.store.save_run(run)
         self._event(run_id, "agent.phase", {"run": run, "phase": phase})
         return run
 
