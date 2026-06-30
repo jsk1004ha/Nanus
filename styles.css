@@ -131,10 +131,15 @@ input:focus-visible {
 }
 
 .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
   display: flex;
   flex-direction: column;
   min-width: 0;
   height: 100vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 12px 8px 8px;
   background: var(--sidebar);
   border-right: 1px solid var(--line);
