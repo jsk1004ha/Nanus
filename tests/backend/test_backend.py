@@ -200,10 +200,37 @@ def test_chat_endpoint_creates_message_backed_run(tmp_path: Path) -> None:
     assert created.status_code == 200
     payload = created.json()
     assert payload["conversationId"].startswith("conv-")
+    assert payload["userMessageId"].startswith("user-")
     assert payload["assistantMessageId"].startswith("msg-")
     assert payload["runId"] == payload["run"]["id"]
     assert payload["run"]["kind"] == "writing"
     assert payload["run"]["runtime"]["conversation"]["id"] == payload["conversationId"]
+
+    persisted_messages = client.get(f"/api/conversations/{payload['conversationId']}/messages")
+    assert persisted_messages.status_code == 200
+    message_payload = persisted_messages.json()
+    assert message_payload["conversation"]["id"] == payload["conversationId"]
+    assert message_payload["conversation"]["messageCount"] == 2
+    assert len(message_payload["messages"]) == 2
+    user_message, assistant_message = message_payload["messages"]
+    assert user_message["id"] == payload["userMessageId"]
+    assert user_message["role"] == "user"
+    assert user_message["status"] == "complete"
+    assert user_message["content"] == "이 보고서 분량을 자연스럽게 보강하는 방법 알려줘"
+    assert assistant_message["id"] == payload["assistantMessageId"]
+    assert assistant_message["role"] == "assistant"
+    assert assistant_message["runId"] == payload["runId"]
+
+    final_run = wait_for_terminal_run(client, payload["runId"])
+    final_messages = client.get(f"/api/conversations/{payload['conversationId']}/messages").json()["messages"]
+    final_assistant = next(message for message in final_messages if message["id"] == payload["assistantMessageId"])
+    assert final_assistant["status"] == "degraded"
+    assert final_assistant["content"] == final_run["finalAnswer"]
+
+    conversations = client.get("/api/conversations").json()["conversations"]
+    listed = next(conversation for conversation in conversations if conversation["id"] == payload["conversationId"])
+    assert listed["messageCount"] == 2
+    assert listed["title"].startswith("이 보고서 분량을")
 
 
 def test_general_run_uses_live_codex_when_bridge_is_enabled(tmp_path: Path) -> None:
@@ -249,6 +276,9 @@ def test_conversation_message_endpoint_preserves_conversation_id(tmp_path: Path)
     assert payload["userMessageId"].startswith("user-")
     assert payload["assistantMessageId"].startswith("msg-")
     assert payload["run"]["runtime"]["conversation"]["id"] == "conv-user-visible"
+    messages = client.get("/api/conversations/conv-user-visible/messages")
+    assert messages.status_code == 200
+    assert [message["role"] for message in messages.json()["messages"]] == ["user", "assistant"]
 
 
 def test_run_pause_resume_and_cancel_endpoints(tmp_path: Path) -> None:

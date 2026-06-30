@@ -87,6 +87,13 @@ def _normalize_verification(adapter_result: dict[str, Any], *, final_answer: str
     }
 
 
+def _assistant_message_id(run: dict[str, Any]) -> str | None:
+    runtime = run.get("runtime") if isinstance(run.get("runtime"), dict) else {}
+    conversation = runtime.get("conversation") if isinstance(runtime.get("conversation"), dict) else {}
+    message_id = conversation.get("assistantMessageId")
+    return str(message_id) if message_id else None
+
+
 class ExecutionEngine:
     def __init__(self, store: RunStore, *, llm: AnthropicMessagesClient | None = None, codex: CodexBridge | None = None) -> None:
         self.store = store
@@ -103,12 +110,14 @@ class ExecutionEngine:
             self.store.update_job(job_id, "failed", error=f"run {run_id} not found")
             return
         if run["status"] == "cancelled":
+            self._update_assistant_message(run, status="cancelled", content="실행이 취소되었습니다.")
             self.store.update_job(job_id, "cancelled")
             return
 
         try:
             run["status"] = "running"
             _append_log(run, "백그라운드 작업자가 실행을 시작했습니다.")
+            self._update_assistant_message(run, status="running")
             self._persist_and_emit(run, "run.started")
 
             await self._checkpoint(run_id, job_id)
@@ -156,6 +165,8 @@ class ExecutionEngine:
             )
             if run["verification"]["status"] == "failed":
                 raise RuntimeError("; ".join(run["verification"]["errors"]) or "Result contract validation failed")
+            message_status = "degraded" if run["verification"]["status"] == "degraded" else "complete"
+            self._update_assistant_message(run, content=final_answer, status=message_status)
             for line in adapter_result.get("logs", []):
                 _append_log(run, line)
             _append_log(run, "최종 답변 contract: finalAnswer 검증 완료")
@@ -179,6 +190,7 @@ class ExecutionEngine:
                 "assistant.message.completed",
                 {
                     "runId": run_id,
+                    "assistantMessageId": _assistant_message_id(run),
                     "finalAnswer": final_answer,
                     "resultType": run.get("resultType"),
                     "verification": run.get("verification"),
@@ -225,6 +237,7 @@ class ExecutionEngine:
             if failed_run:
                 failed_run["status"] = "failed"
                 _append_log(failed_run, f"실행 실패: {exc}")
+                self._update_assistant_message(failed_run, status="failed", content=f"실행 실패: {exc}")
                 self._persist_and_emit(failed_run, "run.failed")
             self.store.update_job(job_id, "failed", error=str(exc))
 
@@ -283,6 +296,11 @@ class ExecutionEngine:
 
     def _persist_run(self, run: dict[str, Any]) -> None:
         self.store.save_run(run)
+
+    def _update_assistant_message(self, run: dict[str, Any], *, status: str | None = None, content: str | None = None) -> None:
+        message_id = _assistant_message_id(run)
+        if message_id:
+            self.store.update_message(message_id, status=status, content=content)
 
     def _persist_and_emit(self, run: dict[str, Any], event_type: str = "run.updated") -> dict[str, Any]:
         self._persist_run(run)

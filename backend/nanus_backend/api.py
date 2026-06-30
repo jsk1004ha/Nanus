@@ -103,6 +103,20 @@ def _ensure_run_input_size(input_text: str) -> None:
         )
 
 
+def _conversation_title(input_text: str) -> str:
+    first_line = " ".join(input_text.strip().split())
+    if len(first_line) <= 72:
+        return first_line or "Nanus conversation"
+    return f"{first_line[:69]}..."
+
+
+def _assistant_message_id(run: dict[str, Any]) -> str | None:
+    runtime = run.get("runtime") if isinstance(run.get("runtime"), dict) else {}
+    conversation = runtime.get("conversation") if isinstance(runtime.get("conversation"), dict) else {}
+    message_id = conversation.get("assistantMessageId")
+    return str(message_id) if message_id else None
+
+
 def create_app(*, db_path: str | Path | None = None) -> FastAPI:
     store = RunStore(db_path)
     llm = AnthropicMessagesClient()
@@ -193,12 +207,31 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
         _ensure_run_input_size(input_text)
         run = create_run(input_text, mode=mode)
         resolved_conversation_id = conversation_id or f"conv-{run['id'][:12]}"
+        user_message_id = f"user-{run['id'][:12]}"
+        assistant_message_id = f"msg-{run['id'][:12]}"
         run["runtime"]["conversation"] = {
             "id": resolved_conversation_id,
-            "userMessageId": f"user-{run['id'][:12]}",
-            "assistantMessageId": f"msg-{run['id'][:12]}",
+            "userMessageId": user_message_id,
+            "assistantMessageId": assistant_message_id,
         }
         store.save_run(run)
+        store.save_conversation(resolved_conversation_id, title=_conversation_title(input_text))
+        store.add_message(
+            user_message_id,
+            resolved_conversation_id,
+            role="user",
+            content=input_text,
+            status="complete",
+            run_id=run["id"],
+        )
+        store.add_message(
+            assistant_message_id,
+            resolved_conversation_id,
+            role="assistant",
+            content="",
+            status="queued",
+            run_id=run["id"],
+        )
         job = supervisor.enqueue_run(run["id"])
         run["runtime"]["jobId"] = job["id"]
         store.save_run(run)
@@ -240,6 +273,7 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
         conversation = run["runtime"]["conversation"]
         return {
             "conversationId": conversation["id"],
+            "userMessageId": conversation["userMessageId"],
             "assistantMessageId": conversation["assistantMessageId"],
             "runId": run["id"],
             "status": run["status"],
@@ -258,6 +292,17 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
             "status": run["status"],
             "run": run,
         }
+
+    @app.get("/api/conversations")
+    def list_conversations() -> dict[str, Any]:
+        return {"conversations": store.list_conversations()}
+
+    @app.get("/api/conversations/{conversation_id}/messages")
+    def get_conversation_messages(conversation_id: str) -> dict[str, Any]:
+        conversation = store.get_conversation(conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return {"conversation": conversation, "messages": store.list_messages(conversation_id)}
 
     @app.get("/api/runs")
     def list_runs() -> dict[str, Any]:
@@ -318,6 +363,9 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=f"Run is already {run['status']}")
         run["status"] = "paused"
         _append_run_log(run, "사용자 요청으로 실행을 일시정지했습니다.")
+        assistant_message_id = _assistant_message_id(run)
+        if assistant_message_id:
+            store.update_message(assistant_message_id, status="paused")
         store.save_run(run)
         job = store.get_job_for_run(run_id)
         if job:
@@ -334,6 +382,9 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=f"Run is already {run['status']}")
         run["status"] = "running"
         _append_run_log(run, "사용자 요청으로 실행을 재개했습니다.")
+        assistant_message_id = _assistant_message_id(run)
+        if assistant_message_id:
+            store.update_message(assistant_message_id, status="running")
         store.save_run(run)
         job = store.get_job_for_run(run_id)
         if job:
@@ -351,6 +402,9 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=f"Run is already {run['status']}")
         run["status"] = "cancelled"
         _append_run_log(run, "사용자 요청으로 실행을 취소했습니다.")
+        assistant_message_id = _assistant_message_id(run)
+        if assistant_message_id:
+            store.update_message(assistant_message_id, status="cancelled", content="실행이 취소되었습니다.")
         store.save_run(run)
         job = store.get_job_for_run(run_id)
         if job:

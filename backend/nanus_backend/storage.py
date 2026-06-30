@@ -90,6 +90,28 @@ class RunStore:
                     updated_at real not null,
                     claimed_at real
                 );
+                create table if not exists conversations (
+                    id text primary key,
+                    title text not null,
+                    project_id text,
+                    instructions text,
+                    created_at real not null,
+                    updated_at real not null
+                );
+                create table if not exists messages (
+                    id text primary key,
+                    conversation_id text not null references conversations(id) on delete cascade,
+                    run_id text references runs(id) on delete set null,
+                    role text not null,
+                    content text not null,
+                    status text not null,
+                    created_at real not null,
+                    updated_at real not null
+                );
+                create index if not exists idx_messages_conversation_created
+                    on messages(conversation_id, created_at);
+                create index if not exists idx_messages_run
+                    on messages(run_id);
                 """
             )
 
@@ -154,6 +176,119 @@ class RunStore:
         with self._lock, self._connection() as conn:
             rows = conn.execute("select * from runs order by created_at desc").fetchall()
         return [self._row_to_run(row) for row in rows]
+
+    def save_conversation(
+        self,
+        conversation_id: str,
+        *,
+        title: str,
+        project_id: str | None = None,
+        instructions: str | None = None,
+    ) -> dict[str, Any]:
+        now = time()
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """
+                insert into conversations (id, title, project_id, instructions, created_at, updated_at)
+                values (?, ?, ?, ?, ?, ?)
+                on conflict(id) do update set
+                    project_id=coalesce(excluded.project_id, conversations.project_id),
+                    instructions=coalesce(excluded.instructions, conversations.instructions),
+                    updated_at=excluded.updated_at
+                """,
+                (conversation_id, title, project_id, instructions, now, now),
+            )
+            row = self._conversation_row(conn, conversation_id)
+        if row is None:
+            raise RuntimeError(f"Conversation {conversation_id} was not persisted")
+        return self._row_to_conversation(row)
+
+    def get_conversation(self, conversation_id: str) -> dict[str, Any] | None:
+        with self._lock, self._connection() as conn:
+            row = self._conversation_row(conn, conversation_id)
+        return self._row_to_conversation(row) if row else None
+
+    def list_conversations(self) -> list[dict[str, Any]]:
+        with self._lock, self._connection() as conn:
+            rows = conn.execute(
+                """
+                select
+                    c.*,
+                    count(m.id) as message_count,
+                    max(m.updated_at) as last_message_at
+                from conversations c
+                left join messages m on m.conversation_id = c.id
+                group by c.id
+                order by c.updated_at desc
+                """
+            ).fetchall()
+        return [self._row_to_conversation(row) for row in rows]
+
+    def add_message(
+        self,
+        message_id: str,
+        conversation_id: str,
+        *,
+        role: str,
+        content: str,
+        status: str,
+        run_id: str | None = None,
+    ) -> dict[str, Any]:
+        now = time()
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """
+                insert into messages (id, conversation_id, run_id, role, content, status, created_at, updated_at)
+                values (?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(id) do update set
+                    run_id=excluded.run_id,
+                    content=excluded.content,
+                    status=excluded.status,
+                    updated_at=excluded.updated_at
+                """,
+                (message_id, conversation_id, run_id, role, content, status, now, now),
+            )
+            conn.execute("update conversations set updated_at = ? where id = ?", (now, conversation_id))
+            row = conn.execute("select * from messages where id = ?", (message_id,)).fetchone()
+        if row is None:
+            raise RuntimeError(f"Message {message_id} was not persisted")
+        return self._row_to_message(row)
+
+    def update_message(
+        self,
+        message_id: str,
+        *,
+        content: str | None = None,
+        status: str | None = None,
+        run_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        now = time()
+        assignments = ["updated_at = ?"]
+        values: list[Any] = [now]
+        if content is not None:
+            assignments.append("content = ?")
+            values.append(content)
+        if status is not None:
+            assignments.append("status = ?")
+            values.append(status)
+        if run_id is not None:
+            assignments.append("run_id = ?")
+            values.append(run_id)
+        values.append(message_id)
+        with self._lock, self._connection() as conn:
+            conn.execute(f"update messages set {', '.join(assignments)} where id = ?", values)
+            row = conn.execute("select * from messages where id = ?", (message_id,)).fetchone()
+            if row:
+                conn.execute("update conversations set updated_at = ? where id = ?", (now, row["conversation_id"]))
+        return self._row_to_message(row) if row else None
+
+    def list_messages(self, conversation_id: str) -> list[dict[str, Any]]:
+        with self._lock, self._connection() as conn:
+            rows = conn.execute(
+                "select * from messages where conversation_id = ? order by created_at, id",
+                (conversation_id,),
+            ).fetchall()
+        return [self._row_to_message(row) for row in rows]
 
     def enqueue_job(self, run_id: str, job_id: str) -> dict[str, Any]:
         now = time()
@@ -339,3 +474,46 @@ class RunStore:
             if isinstance(download.get("size"), int):
                 artifact["sizeBytes"] = download["size"]
         return artifact
+
+    def _conversation_row(self, conn: sqlite3.Connection, conversation_id: str) -> sqlite3.Row | None:
+        return conn.execute(
+            """
+            select
+                c.*,
+                count(m.id) as message_count,
+                max(m.updated_at) as last_message_at
+            from conversations c
+            left join messages m on m.conversation_id = c.id
+            where c.id = ?
+            group by c.id
+            """,
+            (conversation_id,),
+        ).fetchone()
+
+    def _row_to_conversation(self, row: sqlite3.Row) -> dict[str, Any]:
+        keys = set(row.keys())
+        conversation: dict[str, Any] = {
+            "id": row["id"],
+            "title": row["title"],
+            "projectId": row["project_id"],
+            "instructions": row["instructions"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+        if "message_count" in keys:
+            conversation["messageCount"] = int(row["message_count"] or 0)
+        if "last_message_at" in keys:
+            conversation["lastMessageAt"] = row["last_message_at"]
+        return conversation
+
+    def _row_to_message(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "conversationId": row["conversation_id"],
+            "runId": row["run_id"],
+            "role": row["role"],
+            "content": row["content"],
+            "status": row["status"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
