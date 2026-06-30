@@ -13,17 +13,19 @@ function asBackendRun(run: ActiveRun): ActiveRun {
 }
 
 function isTerminalRun(run: ActiveRun) {
-  return run.status === "complete" || run.status === "failed" || run.status === "cancelled";
+  return run.status === "complete" || run.status === "failed" || run.status === "cancelled" || run.status === "degraded";
 }
 
 async function createBackendRun(input: string, mode: WorkspaceMode): Promise<ActiveRun> {
-  const response = await fetch(backendApiUrl("/api/runs"), {
+  const response = await fetch(backendApiUrl("/api/chat"), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ input, mode }),
+    body: JSON.stringify({ message: input, mode }),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return asBackendRun((await response.json()) as ActiveRun);
+  const payload = (await response.json()) as { run?: ActiveRun };
+  if (!payload.run) throw new Error("Backend returned no run");
+  return asBackendRun(payload.run);
 }
 
 function subscribeToRun(runId: string, onRun: (run: ActiveRun) => void, onFallback: (reason: string) => void) {
@@ -94,13 +96,30 @@ export async function cancelBackendRun(runId: string): Promise<ActiveRun> {
 
 export async function connectBackendRun(input: string, mode: WorkspaceMode, localRun: ActiveRun, onRun: (run: ActiveRun) => void) {
   if (!backendEnabled) return null;
-  const fallback = (reason: string) => onRun({ ...localRun, log: [...localRun.log, `백엔드 대체: ${reason}`] });
+  const failRun = (reason: string) =>
+    onRun({
+      ...localRun,
+      status: "failed",
+      progress: 0,
+      steps: localRun.steps.map((step) => ({ ...step, state: "pending" })),
+      artifacts: [],
+      finalAnswer: `실제 백엔드 실행이 실패했습니다.\n\n원인: ${reason}\n\n이 화면은 성공 결과가 아니며, 로컬 미리보기로 완료 처리하지 않았습니다. 입력이 매우 길다면 파일/문서 업로드 경로가 필요합니다.`,
+      resultType: "backend_error",
+      verification: {
+        backendUsed: false,
+        llmUsed: false,
+        fallbackUsed: false,
+        errors: [reason],
+        warnings: ["백엔드 실패를 로컬 완료로 대체하지 않았습니다."],
+      },
+      log: [...localRun.log, `백엔드 실행 실패: ${reason}`, "실제 실행 결과가 아니므로 완료 처리하지 않았습니다."],
+    });
   try {
     const backendRun = await createBackendRun(input, mode);
     onRun(backendRun);
-    return subscribeToRun(backendRun.id, onRun, fallback);
+    return subscribeToRun(backendRun.id, onRun, failRun);
   } catch (error) {
-    fallback(error instanceof Error ? error.message : "unknown");
+    failRun(error instanceof Error ? error.message : "unknown");
     return null;
   }
 }

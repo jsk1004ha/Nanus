@@ -18,6 +18,18 @@ function appendRunLog(log: string[], line: string) {
   return log.includes(line) ? log : [...log, line];
 }
 
+function localFinalAnswer(run: ActiveRun) {
+  if (run.finalAnswer) return run.finalAnswer;
+  if (run.kind === "writing") {
+    return (
+      "글을 늘릴 때는 같은 말을 반복하기보다 문제 배경, 판단 기준, 계산 근거, 실험 절차, 예상 문제와 대응 방안을 추가하는 방식이 좋습니다.\n\n" +
+      "먼저 원고의 각 섹션마다 '왜 필요한가', '어떻게 확인할 것인가', '실패하면 어떻게 대응할 것인가' 중 하나를 덧붙이세요. " +
+      "그 다음 바로 붙여넣을 수 있는 문단 예시를 섹션별로 추가하면 분량과 설득력이 함께 늘어납니다."
+    );
+  }
+  return `${run.title} 요청을 로컬 미리보기로 처리했습니다. 실제 백엔드가 연결되면 이 영역에는 assistant 최종 답변과 검증 정보가 표시됩니다.`;
+}
+
 export function advanceRun(run: ActiveRun): ActiveRun {
   if (run.status !== "running") return run;
 
@@ -48,5 +60,17 @@ export function advanceRun(run: ActiveRun): ActiveRun {
     status,
     steps,
     log,
+    finalAnswer: status === "complete" ? localFinalAnswer(run) : run.finalAnswer,
+    resultType: status === "complete" ? run.resultType ?? (run.kind === "writing" ? "writing_advice" : "answer") : run.resultType,
+    verification:
+      status === "complete"
+        ? run.verification ?? {
+            backendUsed: false,
+            llmUsed: false,
+            fallbackUsed: true,
+            errors: [],
+            warnings: ["브라우저 로컬 미리보기 결과입니다."],
+          }
+        : run.verification,
   };
 }

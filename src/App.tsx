@@ -792,7 +792,7 @@ export function App() {
   }
 
   function toggleRunPause() {
-    if (!activeRun || activeRun.status === "complete" || activeRun.status === "failed" || activeRun.status === "cancelled") {
+    if (!activeRun || activeRun.status === "complete" || activeRun.status === "failed" || activeRun.status === "cancelled" || activeRun.status === "degraded") {
       notify("일시정지 불가", activeRun ? "종료된 런입니다." : "실행 중인 작업이 없습니다.", "warning");
       return;
     }

@@ -13,6 +13,48 @@ def _safe_filename(value: str, suffix: str) -> str:
     return f"{(cleaned or 'nanus-artifact')[:80]}{suffix}"
 
 
+def _verification(*, result_live: bool, errors: list[str] | None = None, warnings: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "backendUsed": True,
+        "llmUsed": result_live,
+        "fallbackUsed": not result_live,
+        "errors": errors or [],
+        "warnings": warnings or ([] if result_live else ["LLM 키가 없어 로컬 fallback 답변을 생성했습니다."]),
+    }
+
+
+def _writing_fallback_answer(prompt: str) -> str:
+    compact = " ".join(prompt.split())
+    excerpt = compact[:260] if compact else "제공한 원고"
+    return (
+        "좋습니다. 이 요청은 PPT 제작보다 원고를 어떻게 자연스럽게 늘릴지에 대한 글쓰기 조언으로 처리하는 것이 맞습니다.\n\n"
+        "글을 늘릴 때는 문장을 반복하거나 같은 말을 길게 풀어 쓰기보다, 평가자가 더 신뢰할 수 있는 근거를 추가하는 방식이 좋습니다. "
+        "특히 보고서라면 문제 배경, 설계 이유, 조건 계산, 실험 절차, 실패 시나리오, 기대 효과를 보강하면 분량과 설득력이 함께 늘어납니다.\n\n"
+        "1. 문제 배경을 한 문단 더 넣으세요.\n"
+        "현재 원고가 주제와 결론 위주라면, 왜 이 문제가 중요한지와 어떤 상황에서 문제가 커지는지를 먼저 설명하세요. "
+        "예를 들어 학교, 공공시설, 실험 환경처럼 관리자가 매일 확인하기 어려운 조건을 붙이면 글이 자연스럽게 확장됩니다.\n\n"
+        "추가 문단 예시:\n"
+        "이 주제는 단순히 장치를 만드는 활동에 그치지 않고, 실제 사용 환경에서 반복적으로 발생하는 관리 문제를 줄이기 위한 해결 방안을 찾는 과정이다. "
+        "특히 사람이 직접 확인하기 어렵거나 관리 주기가 긴 환경에서는 작은 오염, 마찰, 오차가 누적되어 성능 저하로 이어질 수 있다. "
+        "따라서 본 설계는 기능 구현뿐 아니라 유지관리 가능성과 반복 사용성을 함께 고려해야 한다.\n\n"
+        "2. 설계 조건과 판단 기준을 추가하세요.\n"
+        "무엇을 기준으로 성공 또는 실패를 판단할지 쓰면 분량이 늘고 보고서가 더 전문적으로 보입니다. "
+        "예를 들어 작동 시간, 안정성, 비용, 제작 난이도, 재료 선택 이유를 각각 짧은 문단으로 분리할 수 있습니다.\n\n"
+        "3. 계산이나 비교 근거를 넣으세요.\n"
+        "정확한 실험값이 없더라도 가정값을 두고 간단한 계산 과정을 보여주면 좋습니다. "
+        "질량, 각도, 시간, 비용, 효율처럼 숫자로 설명할 수 있는 항목을 찾아 '가정 - 계산 - 해석' 순서로 쓰세요.\n\n"
+        "4. 실험 계획을 단계별로 늘리세요.\n"
+        "실험은 '한다'고만 쓰지 말고 준비물, 통제 조건, 측정 방법, 반복 횟수, 기록 방식, 오차 원인을 나눠 쓰면 됩니다. "
+        "이 부분은 분량을 늘리면서도 내용이 빈약해 보이지 않는 가장 안전한 구간입니다.\n\n"
+        "5. 예상 문제점과 대응 방안을 추가하세요.\n"
+        "실패 가능성을 먼저 인정하고 대응책을 쓰면 보고서가 더 성숙해 보입니다. "
+        "예상 문제는 재료 파손, 측정 오차, 환경 변화, 작동 불안정, 제작 시간 부족 등으로 나눌 수 있습니다.\n\n"
+        "피해야 할 방식도 있습니다. 같은 문장을 반복하거나, 형용사만 많이 붙이거나, 결론을 여러 번 말하는 방식은 분량은 늘어도 품질이 떨어집니다. "
+        "대신 각 문단에 '왜 필요한가', '어떻게 확인할 것인가', '실패하면 어떻게 할 것인가' 중 하나를 추가하세요.\n\n"
+        f"현재 입력에서 우선 보강 대상으로 잡을 만한 부분은 다음 내용입니다: {excerpt}"
+    )
+
+
 def list_skill_tools(*, anthropic_status: dict[str, Any], codex_status: dict[str, Any]) -> list[dict[str, Any]]:
     deck_connection = {
         "id": "deck-from-brief",
@@ -41,6 +83,16 @@ def list_skill_tools(*, anthropic_status: dict[str, Any], codex_status: dict[str
             "permissions": ["run:write", "artifact:write", "optional:anthropic-messages"],
             "inputSchema": {"type": "object", "required": ["prompt"], "properties": {"prompt": {"type": "string"}}},
             "connection": {**deck_connection, "id": "artifact-studio", "name": "Artifact Studio"},
+        },
+        {
+            "id": "writing-advice",
+            "command": "/writing-advice",
+            "name": "Writing Advice",
+            "description": "보고서/원고 분량 보강, 섹션별 확장 방향, 바로 붙여넣을 문단 예시를 생성합니다.",
+            "runtime": "python-function",
+            "permissions": ["run:write", "artifact:write", "optional:anthropic-messages"],
+            "inputSchema": {"type": "object", "required": ["prompt"], "properties": {"prompt": {"type": "string"}}},
+            "connection": {**deck_connection, "id": "writing-advice", "name": "Writing Advice"},
         },
         {
             "id": "codex-cli",
@@ -91,7 +143,14 @@ async def deck_from_brief(prompt: str, llm: AnthropicMessagesClient) -> dict[str
     filename = _safe_filename(f"{base_title} 초안", ".pptx")
     pptx_bytes = build_pptx_bytes(outline["title"], slides)
     download = encode_download(filename, PPTX_MIME_TYPE, pptx_bytes)
+    final_answer = (
+        f"{base_title} 발표자료 초안을 생성했습니다. 목차와 다운로드 가능한 PPTX 산출물을 함께 만들었고, "
+        "각 슬라이드는 문제 정의, 핵심 데이터, 실행 제안 흐름으로 구성되어 있습니다."
+    )
     return {
+        "finalAnswer": final_answer,
+        "resultType": "deck",
+        "verification": _verification(result_live=result.live),
         "logs": [
             "Python skill /deck-from-brief를 실행했습니다.",
             f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}",
@@ -112,12 +171,44 @@ async def deck_from_brief(prompt: str, llm: AnthropicMessagesClient) -> dict[str
     }
 
 
+async def writing_advice(prompt: str, llm: AnthropicMessagesClient) -> dict[str, Any]:
+    result = await llm.generate(
+        prompt,
+        system=(
+            "너는 한국어 보고서 작성 코치다. 사용자의 원고나 요청을 분석해 분량을 자연스럽게 늘리는 방법을 제안한다. "
+            "반드시 전체 진단, 섹션별 보강 방향, 바로 붙여넣을 수 있는 추가 문단 예시, 피해야 할 방식을 포함한다."
+        ),
+    )
+    final_answer = result.text if result.live else _writing_fallback_answer(prompt)
+    artifact = {
+        "id": f"writing-{uuid4().hex[:8]}",
+        "title": "보고서 원고 확장 제안.md",
+        "type": "markdown",
+        "content": {"text": final_answer, "provider": result.provider, "live": result.live},
+    }
+    return {
+        "finalAnswer": final_answer,
+        "resultType": "writing_advice",
+        "verification": _verification(result_live=result.live),
+        "logs": [
+            "Writing Coach가 글쓰기 조언 요청으로 분류했습니다.",
+            f"입력 길이: {len(prompt)}자",
+            f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}",
+            "최종 답변 contract: finalAnswer 생성 완료",
+        ] + ([f"LLM fallback reason: {result.error}"] if result.error else []),
+        "artifacts": [artifact],
+    }
+
+
 async def generic_llm_result(prompt: str, llm: AnthropicMessagesClient) -> dict[str, Any]:
     result = await llm.generate(prompt, system="You are the Nanus execution backend. Produce concise Korean task output.")
     logs = [f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}"]
     if result.error:
         logs.append(f"LLM fallback reason: {result.error}")
     return {
+        "finalAnswer": result.text,
+        "resultType": "answer",
+        "verification": _verification(result_live=result.live),
         "logs": logs,
         "artifacts": [
             {

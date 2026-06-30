@@ -26,7 +26,8 @@ export default function OperationStage({
   onRunChange: Dispatch<SetStateAction<ActiveRun | null>>;
 }) {
   const effectivelyPaused = runPaused || activeRun.status === "paused";
-  const terminal = activeRun.status === "complete" || activeRun.status === "failed" || activeRun.status === "cancelled";
+  const terminal =
+    activeRun.status === "complete" || activeRun.status === "failed" || activeRun.status === "cancelled" || activeRun.status === "degraded";
 
   return (
     <section className="operation-stage" aria-label="Nanus operation workspace">

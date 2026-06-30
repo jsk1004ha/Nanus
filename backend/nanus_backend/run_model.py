@@ -8,6 +8,7 @@ RunKind = str
 
 COMMAND_LABELS: dict[RunKind, str] = {
     "deck": "발표자료 제작",
+    "writing": "글쓰기 조언",
     "site": "웹사이트 구축",
     "app": "앱 개발",
     "design": "디자인 정리",
@@ -20,6 +21,7 @@ COMMAND_LABELS: dict[RunKind, str] = {
 
 RUN_WORKERS: dict[RunKind, str] = {
     "deck": "Artifact Studio + Presenton",
+    "writing": "Writing Coach",
     "site": "Web Builder + Codex",
     "app": "Codex Lane",
     "design": "Design System Agent",
@@ -44,6 +46,24 @@ def split_command(input_text: str) -> tuple[str, str]:
 
 def detect_run_kind(command: str, prompt: str) -> RunKind:
     haystack = f"{command} {prompt}".lower()
+    if command in {"/deck-from-brief", "/artifact-studio"}:
+        return "deck"
+    if any(
+        token in haystack
+        for token in [
+            "글 늘릴",
+            "글늘릴",
+            "늘릴방법",
+            "늘릴 방법",
+            "분량",
+            "보강",
+            "확장",
+            "문단 추가",
+            "문장 추가",
+            "첨삭",
+        ]
+    ):
+        return "writing"
     if any(token in haystack for token in ["artifact-studio", "deck", "ppt", "pdf", "hwpx", "발표", "슬라이드", "문서"]):
         return "deck"
     if any(token in haystack for token in ["site", "web", "웹사이트"]):
@@ -75,6 +95,11 @@ def build_run_steps(kind: RunKind, prompt: str, command: str) -> list[dict[str, 
             {"id": "brief", "title": "요구사항 해석", "detail": base_detail, "state": "done"},
             {"id": "outline", "title": "슬라이드 구조 생성", "detail": "목차, 메시지, 근거를 구성합니다.", "state": "active"},
             {"id": "render", "title": "PPTX 렌더링", "detail": "Presenton/export 슬롯을 준비합니다.", "state": "pending"},
+        ],
+        "writing": [
+            {"id": "diagnose", "title": "원고 진단", "detail": base_detail, "state": "done"},
+            {"id": "strategy", "title": "보강 방향 설계", "detail": "분량을 자연스럽게 늘릴 섹션과 근거를 찾습니다.", "state": "active"},
+            {"id": "answer", "title": "답변 작성", "detail": "바로 적용 가능한 문단 예시와 주의점을 작성합니다.", "state": "pending"},
         ],
         "site": [
             {"id": "brief", "title": "사이트 요구사항 해석", "detail": base_detail, "state": "done"},
@@ -126,6 +151,7 @@ def build_artifacts(kind: RunKind, title: str) -> list[dict[str, Any]]:
             {"id": "outline", "title": f"{title} 목차", "type": "outline"},
             {"id": "pptx", "title": f"{title} 초안.pptx", "type": "pptx"},
         ],
+        "writing": [{"id": "writing-advice", "title": "보고서 원고 확장 제안.md", "type": "markdown"}],
         "site": [
             {"id": "wireframe", "title": f"{title} 페이지 구조", "type": "wireframe"},
             {"id": "preview", "title": f"{title} 미리보기", "type": "web"},

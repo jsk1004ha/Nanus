@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from nanus_backend.api import create_app  # noqa: E402
+from nanus_backend.api import MAX_RUN_INPUT_CHARS, create_app  # noqa: E402
 
 
 def make_client(tmp_path: Path) -> TestClient:
@@ -26,6 +26,15 @@ def make_client_with_unset_codex(tmp_path: Path) -> TestClient:
     os.environ.pop("NANUS_CODEX_ENABLED", None)
     app = create_app(db_path=tmp_path / "nanus-unset-codex.sqlite3")
     return TestClient(app)
+
+
+def wait_for_terminal_run(client: TestClient, run_id: str, *, attempts: int = 40) -> dict:
+    for _ in range(attempts):
+        candidate = client.get(f"/api/runs/{run_id}").json()
+        if candidate["status"] in {"complete", "failed", "cancelled", "degraded"}:
+            return candidate
+        time.sleep(0.05)
+    raise AssertionError(f"run {run_id} did not reach a terminal state")
 
 
 def test_run_creation_websocket_stream_and_persistence(tmp_path: Path) -> None:
@@ -51,6 +60,8 @@ def test_run_creation_websocket_stream_and_persistence(tmp_path: Path) -> None:
     final_run = stream_events[-1]["payload"]["run"]
     assert final_run["status"] == "complete"
     assert final_run["progress"] == 100
+    assert final_run["finalAnswer"]
+    assert final_run["verification"]["backendUsed"] is True
     assert "백그라운드 작업자가 실행을 시작했습니다." in final_run["log"]
     assert any("Python skill /deck-from-brief" in line for line in final_run["log"])
     assert any(event["type"] == "artifact.created" for event in stream_events)
@@ -106,6 +117,37 @@ def test_run_completes_without_websocket_subscriber(tmp_path: Path) -> None:
     assert [artifact["type"] for artifact in client.get(f"/api/runs/{run_id}/artifacts").json()["artifacts"]] == ["outline", "pptx"]
 
 
+def test_writing_advice_long_input_returns_final_answer_not_deck(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    report = "설계 보고서 원고입니다. 목적, 조건, 실험 계획, 예상 문제점을 더 자세히 쓰고 싶습니다. " * 500
+    created = client.post("/api/runs", json={"input": f"{report}\n\n이거 글 늘릴방법 생각해줘", "mode": "local"})
+
+    assert created.status_code == 200
+    run = created.json()
+    assert run["kind"] == "writing"
+    assert run["worker"] == "Writing Coach"
+
+    final_run = wait_for_terminal_run(client, run["id"])
+    assert final_run["status"] == "complete"
+    assert final_run["resultType"] == "writing_advice"
+    assert "글을 늘릴 때는" in final_run["finalAnswer"]
+    assert final_run["verification"]["fallbackUsed"] is True
+    artifacts = client.get(f"/api/runs/{run['id']}/artifacts").json()["artifacts"]
+    assert [artifact["type"] for artifact in artifacts] == ["markdown"]
+
+
+def test_chat_endpoint_creates_message_backed_run(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    created = client.post("/api/chat", json={"message": "이 보고서 분량을 자연스럽게 보강하는 방법 알려줘", "mode": "local"})
+
+    assert created.status_code == 200
+    payload = created.json()
+    assert payload["conversationId"].startswith("conv-")
+    assert payload["assistantMessageId"].startswith("msg-")
+    assert payload["runId"] == payload["run"]["id"]
+    assert payload["run"]["kind"] == "writing"
+
+
 def test_run_pause_resume_and_cancel_endpoints(tmp_path: Path) -> None:
     client = make_client(tmp_path)
 
@@ -130,7 +172,7 @@ def test_tools_expose_codex_and_codex_fallback_is_invokable(tmp_path: Path) -> N
 
     tools = client.get("/api/tools").json()["tools"]
     tool_ids = {tool["id"] for tool in tools}
-    assert {"deck-from-brief", "artifact-studio", "codex-cli", "anthropic-messages"}.issubset(tool_ids)
+    assert {"deck-from-brief", "artifact-studio", "writing-advice", "codex-cli", "anthropic-messages"}.issubset(tool_ids)
     codex_tool = next(tool for tool in tools if tool["id"] == "codex-cli")
     assert "codex exec" in codex_tool["connection"]["invocation"]
 
@@ -163,6 +205,10 @@ def test_prompt_payloads_are_trimmed_and_bounded(tmp_path: Path) -> None:
     blank = client.post("/api/runs", json={"input": "   "})
     assert blank.status_code == 422
 
+    too_large_run = client.post("/api/runs", json={"input": "x" * (MAX_RUN_INPUT_CHARS + 1)})
+    assert too_large_run.status_code == 413
+    assert "too large" in too_large_run.json()["detail"]
+
     too_large = client.post("/api/tools/deck-from-brief/invoke", json={"prompt": "x" * 10_001})
     assert too_large.status_code == 422
 
@@ -175,6 +221,7 @@ def test_mcp_tool_list_and_call_router(tmp_path: Path) -> None:
     tool_names = {tool["name"] for tool in listed.json()["result"]["tools"]}
     assert "deck-from-brief" in tool_names
     assert "artifact-studio" in tool_names
+    assert "writing-advice" in tool_names
 
     called = client.post(
         "/mcp",

@@ -100,8 +100,7 @@
 }
 
 .operation-composer {
-  position: sticky;
-  bottom: 14px;
+  position: relative;
   z-index: 3;
   min-height: 96px;
   border-radius: var(--radius-xl);
@@ -127,6 +126,7 @@
   }
 
   .operation-composer {
+    position: sticky;
     bottom: 78px;
   }
 }

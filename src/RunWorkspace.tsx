@@ -32,7 +32,7 @@ export default function RunWorkspace({
   }, [onRunChange, paused, run.id, run.source, run.status]);
 
   const activeStep = run.steps.find((step) => step.state === "active");
-  const terminal = run.status === "complete" || run.status === "failed" || run.status === "cancelled";
+  const terminal = run.status === "complete" || run.status === "failed" || run.status === "cancelled" || run.status === "degraded";
   const effectivelyPaused = paused || run.status === "paused";
   const statusLabel = effectivelyPaused
     ? "일시정지됨"
@@ -44,12 +44,15 @@ export default function RunWorkspace({
           ? "승인 대기"
           : run.status === "failed"
             ? "실패"
+            : run.status === "degraded"
+              ? "제한 실행"
             : run.status === "cancelled"
               ? "취소됨"
               : "실행 중";
   const statusClass = paused ? "paused" : run.status;
   const visibleLogs = run.log.slice(-6);
   const runtimeState = effectivelyPaused ? "PAUSED" : run.status === "complete" ? "FINISHED" : run.status.toUpperCase();
+  const answerParagraphs = run.finalAnswer?.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean) ?? [];
   const runtimeStack = [
     { label: "State loop", value: runtimeState, detail: `${run.steps.filter((step) => step.state === "done").length}/${run.steps.length} steps` },
     { label: "Memory", value: `${run.log.length} records`, detail: "user · agent · observe" },
@@ -81,10 +84,14 @@ export default function RunWorkspace({
         <div className="agent-run-copy">
           <h2>{run.title}</h2>
           <p>
-            {run.status === "complete"
-              ? `${commandLabels[run.kind]} 결과를 만들고 검증 대기 산출물을 정리했습니다.`
+            {run.finalAnswer
+              ? "Nanus가 최종 답변을 생성했습니다. 실행 로그와 산출물은 아래에서 확인할 수 있습니다."
+              : run.status === "complete"
+                ? `${commandLabels[run.kind]} 결과를 만들고 검증 대기 산출물을 정리했습니다.`
               : run.status === "failed"
                 ? "실행 중 오류가 발생했습니다. 실행 기록에서 로그를 확인하세요."
+                : run.status === "degraded"
+                  ? "일부 도구가 실패해 제한된 결과만 표시합니다."
                 : run.status === "cancelled"
                   ? "사용자 요청으로 실행을 취소했습니다."
                   : effectivelyPaused
@@ -92,6 +99,15 @@ export default function RunWorkspace({
                 : `${activeStep?.title ?? "작업 준비"} 단계가 진행 중입니다.`}
           </p>
         </div>
+
+        {answerParagraphs.length ? (
+          <section className={`assistant-answer${run.status === "failed" ? " error" : ""}`} aria-label="Assistant message">
+            <span>{run.status === "failed" ? "실패 원인" : "답변"}</span>
+            {answerParagraphs.map((paragraph) => (
+              <p key={paragraph}>{paragraph}</p>
+            ))}
+          </section>
+        ) : null}
 
         <div className="agent-run-metrics" aria-label="Run summary">
           <span>
@@ -103,8 +119,8 @@ export default function RunWorkspace({
             <small>진행률</small>
           </span>
           <span>
-            <strong>{run.artifacts.length}</strong>
-            <small>산출물</small>
+            <strong>{run.verification?.fallbackUsed ? "fallback" : run.verification?.llmUsed ? "live" : run.source ?? "local"}</strong>
+            <small>실행 출처</small>
           </span>
         </div>
 

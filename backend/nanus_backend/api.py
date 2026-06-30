@@ -20,12 +20,15 @@ from .execution import ExecutionEngine
 from .llm import AnthropicMessagesClient
 from .run_model import create_run
 from .supervisor import JobSupervisor
-from .tooling import deck_from_brief, generic_llm_result, list_skill_tools
+from .tooling import deck_from_brief, generic_llm_result, list_skill_tools, writing_advice
 from .storage import RunStore
 
 
+MAX_RUN_INPUT_CHARS = 120_000
+
+
 class RunCreateRequest(BaseModel):
-    input: str = Field(min_length=1, max_length=10_000)
+    input: str = Field(min_length=1)
     mode: str = "local"
 
     @field_validator("input")
@@ -56,6 +59,20 @@ class JsonRpcRequest(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class ChatMessageRequest(BaseModel):
+    message: str = Field(min_length=1)
+    conversationId: str | None = None
+    mode: str = "local"
+
+    @field_validator("message")
+    @classmethod
+    def strip_message(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Message cannot be blank")
+        return stripped
+
+
 DEFAULT_CORS_ORIGINS = (
     "http://127.0.0.1:5173",
     "http://localhost:5173",
@@ -76,6 +93,14 @@ def _append_run_log(run: dict[str, Any], line: str) -> None:
     log = run.setdefault("log", [])
     if line not in log:
         log.append(line)
+
+
+def _ensure_run_input_size(input_text: str) -> None:
+    if len(input_text) > MAX_RUN_INPUT_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Input is too large for direct chat/run payload ({len(input_text)} chars > {MAX_RUN_INPUT_CHARS}).",
+        )
 
 
 def create_app(*, db_path: str | Path | None = None) -> FastAPI:
@@ -145,6 +170,8 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
     async def invoke_tool_by_id(tool_id: str, prompt: str) -> dict[str, Any]:
         if tool_id in {"deck-from-brief", "deck_from_brief", "artifact-studio", "artifact_studio"}:
             return await deck_from_brief(prompt, llm)
+        if tool_id in {"writing-advice", "writing_advice"}:
+            return await writing_advice(prompt, llm)
         if tool_id in {"codex-cli", "codex_cli"}:
             result = await codex.run(prompt)
             return {
@@ -161,6 +188,17 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
         if tool_id in {"anthropic-messages", "anthropic_messages"}:
             return await generic_llm_result(prompt, llm)
         raise HTTPException(status_code=404, detail="Unknown tool")
+
+    def create_and_enqueue_run(input_text: str, mode: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        _ensure_run_input_size(input_text)
+        run = create_run(input_text, mode=mode)
+        store.save_run(run)
+        job = supervisor.enqueue_run(run["id"])
+        run["runtime"]["jobId"] = job["id"]
+        store.save_run(run)
+        store.add_event(run["id"], "run.created", {"run": run})
+        store.add_event(run["id"], "run.queued", {"run": run, "job": job})
+        return run, job
 
     @app.post("/api/tools/{tool_id}/invoke")
     async def invoke_tool(tool_id: str, payload: ToolInvokeRequest) -> dict[str, Any]:
@@ -187,14 +225,20 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/runs")
     async def create_backend_run(payload: RunCreateRequest) -> dict[str, Any]:
-        run = create_run(payload.input, mode=payload.mode)
-        store.save_run(run)
-        job = supervisor.enqueue_run(run["id"])
-        run["runtime"]["jobId"] = job["id"]
-        store.save_run(run)
-        store.add_event(run["id"], "run.created", {"run": run})
-        store.add_event(run["id"], "run.queued", {"run": run, "job": job})
+        run, _job = create_and_enqueue_run(payload.input, payload.mode)
         return run
+
+    @app.post("/api/chat")
+    async def create_chat_message(payload: ChatMessageRequest) -> dict[str, Any]:
+        run, _job = create_and_enqueue_run(payload.message, payload.mode)
+        conversation_id = payload.conversationId or f"conv-{run['id'][:12]}"
+        return {
+            "conversationId": conversation_id,
+            "assistantMessageId": f"msg-{run['id'][:12]}",
+            "runId": run["id"],
+            "status": run["status"],
+            "run": run,
+        }
 
     @app.get("/api/runs")
     def list_runs() -> dict[str, Any]:

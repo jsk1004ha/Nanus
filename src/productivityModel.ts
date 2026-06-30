@@ -11,6 +11,7 @@ export interface ProductivityWorkspaceContext {
 
 const productivityProfiles: Record<RunKind, Pick<ProductivityPlan, "manualHours" | "nanusHours" | "automationScore" | "leverageScore">> = {
   deck: { manualHours: 9.5, nanusHours: 1.8, automationScore: 88, leverageScore: 91 },
+  writing: { manualHours: 4.5, nanusHours: 0.7, automationScore: 84, leverageScore: 82 },
   site: { manualHours: 14, nanusHours: 3.2, automationScore: 82, leverageScore: 86 },
   app: { manualHours: 18, nanusHours: 4.4, automationScore: 79, leverageScore: 84 },
   design: { manualHours: 7, nanusHours: 1.6, automationScore: 86, leverageScore: 88 },
@@ -26,6 +27,11 @@ const laneLibrary: Record<RunKind, ProductivityPlan["lanes"]> = {
     { id: "research", title: "자료 수집/검증", owner: "Research Lane", detail: "근거와 인용 후보를 병렬로 수집", minutes: 22 },
     { id: "structure", title: "스토리라인", owner: "Planner", detail: "12장 구조와 메시지를 먼저 고정", minutes: 14 },
     { id: "render", title: "PPT 렌더", owner: "Artifact Studio", detail: "템플릿, 차트, 요약본을 동시 생성", minutes: 28 },
+  ],
+  writing: [
+    { id: "diagnose", title: "원고 진단", owner: "Writing Coach", detail: "분량 부족 구간과 반복 문장을 분리", minutes: 8 },
+    { id: "expand", title: "보강 문단", owner: "Writer", detail: "문제 배경, 근거, 실험 계획 문단 생성", minutes: 14 },
+    { id: "verify", title: "품질 점검", owner: "Verifier", detail: "부풀리기 표현과 중복 문장을 제거", minutes: 6 },
   ],
   site: [
     { id: "ia", title: "정보 구조", owner: "Designer", detail: "섹션과 콘텐츠 우선순위 작성", minutes: 18 },

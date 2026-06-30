@@ -5,7 +5,7 @@ from typing import Any
 
 from .codex_bridge import CodexBridge
 from .llm import AnthropicMessagesClient
-from .tooling import deck_from_brief, generic_llm_result
+from .tooling import deck_from_brief, generic_llm_result, writing_advice
 from .storage import RunStore
 
 
@@ -31,6 +31,13 @@ def _set_progress(run: dict[str, Any], progress: int) -> None:
 def _newly_done_titles(previous: list[dict[str, Any]], current: list[dict[str, Any]]) -> list[str]:
     previous_done = {step["id"] for step in previous if step.get("state") == "done"}
     return [step["title"] for step in current if step.get("state") == "done" and step.get("id") not in previous_done]
+
+
+def _final_answer(adapter_result: dict[str, Any]) -> str:
+    final_answer = str(adapter_result.get("finalAnswer") or "").strip()
+    if len(final_answer) < 20:
+        raise RuntimeError("Assistant final answer is missing")
+    return final_answer
 
 
 class ExecutionEngine:
@@ -88,10 +95,20 @@ class ExecutionEngine:
             self._persist_and_emit(run)
 
             adapter_result = await self._execute_adapter(run)
+            final_answer = _final_answer(adapter_result)
             run = self.store.get_run(run_id)
             if not run or run["status"] == "cancelled":
                 self.store.update_job(job_id, "cancelled")
                 return
+            run["finalAnswer"] = final_answer
+            run["resultType"] = str(adapter_result.get("resultType") or run.get("kind") or "answer")
+            run["verification"] = adapter_result.get("verification") or {
+                "backendUsed": True,
+                "llmUsed": False,
+                "fallbackUsed": False,
+                "errors": [],
+                "warnings": [],
+            }
             for line in adapter_result.get("logs", []):
                 _append_log(run, line)
 
@@ -156,6 +173,15 @@ class ExecutionEngine:
         if self.codex.should_handle(command, prompt, kind):
             codex_result = await self.codex.run(prompt)
             return {
+                "finalAnswer": codex_result.text,
+                "resultType": "code_patch" if codex_result.live else "code_summary",
+                "verification": {
+                    "backendUsed": True,
+                    "llmUsed": codex_result.live,
+                    "fallbackUsed": not codex_result.live,
+                    "errors": [],
+                    "warnings": [] if codex_result.live else ["Codex live 실행 대신 deterministic fallback을 사용했습니다."],
+                },
                 "logs": [
                     f"Codex Bridge: {'live codex exec' if codex_result.live else 'deterministic fallback'}",
                     *( [f"Codex Bridge note: {codex_result.error}"] if codex_result.error else [] ),
@@ -169,6 +195,8 @@ class ExecutionEngine:
                     }
                 ],
             }
+        if kind == "writing":
+            return await writing_advice(prompt, self.llm)
         if command in {"/deck-from-brief", "/artifact-studio"} or kind == "deck":
             return await deck_from_brief(prompt, self.llm)
         return await generic_llm_result(prompt, self.llm)

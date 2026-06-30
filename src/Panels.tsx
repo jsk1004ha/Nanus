@@ -216,7 +216,7 @@ function RunInspector({
     steps: placeholderRun.steps.map((step) => ({ ...step, state: "pending" as const })),
     log: ["실행할 작업을 입력하면 로그가 여기에 표시됩니다."],
   };
-  const canPause = Boolean(run && !["complete", "failed", "cancelled"].includes(run.status));
+  const canPause = Boolean(run && !["complete", "failed", "cancelled", "degraded"].includes(run.status));
   const status = canPause && paused ? "paused" : activeRun.status;
   const statusLabel =
     status === "paused"
@@ -229,9 +229,11 @@ function RunInspector({
             ? "승인 대기"
             : status === "failed"
               ? "실패"
-              : status === "cancelled"
-                ? "취소됨"
-                : "실행 중";
+              : status === "degraded"
+                ? "제한 실행"
+                : status === "cancelled"
+                  ? "취소됨"
+                  : "실행 중";
 
   useEffect(() => {
     if (!open) return undefined;

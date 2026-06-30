@@ -2,6 +2,7 @@ import type { ActiveRun, RunKind, RunStep } from "./types";
 
 export const commandLabels: Record<RunKind, string> = {
   deck: "발표자료 제작",
+  writing: "글쓰기 조언",
   site: "웹사이트 구축",
   app: "앱 개발",
   design: "디자인 정리",
@@ -14,6 +15,7 @@ export const commandLabels: Record<RunKind, string> = {
 
 const runWorkers: Record<RunKind, string> = {
   deck: "Artifact Studio + Presenton",
+  writing: "Writing Coach",
   site: "Web Builder + Codex",
   app: "Codex Lane",
   design: "Design System Agent",
@@ -36,24 +38,16 @@ function splitCommand(input: string) {
 
 function detectRunKind(command: string, prompt: string): RunKind {
   const haystack = `${command} ${prompt}`.toLowerCase();
-  if (
-    haystack.includes("artifact-studio") ||
-    haystack.includes("deck") ||
-    haystack.includes("ppt") ||
-    haystack.includes("pdf") ||
-    haystack.includes("hwpx") ||
-    haystack.includes("발표") ||
-    haystack.includes("슬라이드") ||
-    haystack.includes("문서")
-  )
-    return "deck";
-  if (haystack.includes("site") || haystack.includes("web") || haystack.includes("웹사이트")) return "site";
-  if (haystack.includes("app") || haystack.includes("desktop") || haystack.includes("앱")) return "app";
-  if (haystack.includes("design") || haystack.includes("디자인")) return "design";
-  if (haystack.includes("research") || haystack.includes("리서치") || haystack.includes("조사") || haystack.includes("출처") || haystack.includes("근거")) return "research";
-  if (haystack.includes("schedule") || haystack.includes("예약")) return "schedule";
-  if (haystack.includes("library") || haystack.includes("라이브러리")) return "library";
-  if (haystack.includes("agent") || haystack.includes("에이전트")) return "agent";
+  if (command === "/deck-from-brief" || command === "/artifact-studio") return "deck";
+  if (/(글\s*늘릴|늘릴\s*방법|늘릴방법|분량|보강|확장|문단 추가|문장 추가|첨삭)/.test(haystack)) return "writing";
+  if (/(artifact-studio|deck|ppt|pdf|hwpx|발표|슬라이드|문서)/.test(haystack)) return "deck";
+  if (/(site|web|웹사이트)/.test(haystack)) return "site";
+  if (/(app|desktop|앱)/.test(haystack)) return "app";
+  if (/(design|디자인)/.test(haystack)) return "design";
+  if (/(research|리서치|조사|출처|근거)/.test(haystack)) return "research";
+  if (/(schedule|예약)/.test(haystack)) return "schedule";
+  if (/(library|라이브러리)/.test(haystack)) return "library";
+  if (/(agent|에이전트)/.test(haystack)) return "agent";
   return "general";
 }
 
@@ -69,6 +63,11 @@ function buildRunSteps(kind: RunKind, prompt: string, command: string): RunStep[
       { id: "brief", title: "요구사항 해석", detail: baseDetail, state: "done" },
       { id: "outline", title: "슬라이드 구조 생성", detail: "목차, 메시지, 근거를 구성합니다.", state: "active" },
       { id: "render", title: "PPTX 렌더링", detail: "Presenton/export 슬롯을 준비합니다.", state: "pending" },
+    ],
+    writing: [
+      { id: "diagnose", title: "원고 진단", detail: baseDetail, state: "done" },
+      { id: "strategy", title: "보강 방향 설계", detail: "보강 섹션과 근거를 찾습니다.", state: "active" },
+      { id: "answer", title: "답변 작성", detail: "문단 예시와 주의점을 작성합니다.", state: "pending" },
     ],
     site: [
       { id: "brief", title: "사이트 요구사항 해석", detail: baseDetail, state: "done" },
@@ -121,6 +120,7 @@ function buildArtifacts(kind: RunKind, title: string): ActiveRun["artifacts"] {
       { id: "outline", title: `${title} 목차`, type: "outline" },
       { id: "pptx", title: `${title} 초안.pptx`, type: "pptx" },
     ],
+    writing: [{ id: "writing-advice", title: "보고서 원고 확장 제안.md", type: "markdown" }],
     site: [
       { id: "wireframe", title: `${title} 페이지 구조`, type: "wireframe" },
       { id: "preview", title: `${title} 미리보기`, type: "web" },

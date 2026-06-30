@@ -82,7 +82,7 @@ export interface RunStep {
   state: "done" | "active" | "pending";
 }
 
-export type RunKind = "deck" | "site" | "app" | "design" | "research" | "schedule" | "library" | "agent" | "general";
+export type RunKind = "deck" | "writing" | "site" | "app" | "design" | "research" | "schedule" | "library" | "agent" | "general";
 
 export interface ArtifactDownload {
   filename?: string;
@@ -115,7 +115,7 @@ export interface ActiveRun {
   prompt: string;
   command: string;
   kind: RunKind;
-  status: "queued" | "running" | "waiting" | "paused" | "failed" | "complete" | "cancelled";
+  status: "queued" | "running" | "waiting" | "paused" | "failed" | "complete" | "cancelled" | "degraded";
   worker: string;
   progress: number;
   startedAt: string;
@@ -123,6 +123,16 @@ export interface ActiveRun {
   artifacts: Artifact[];
   log: string[];
   source?: "local" | "backend";
+  finalAnswer?: string;
+  resultType?: string;
+  verification?: {
+    backendUsed: boolean;
+    llmUsed: boolean;
+    fallbackUsed: boolean;
+    errors: string[];
+    warnings: string[];
+  };
+  runtime?: Record<string, unknown>;
 }
 
 export interface ProductivityPlan {

@@ -95,6 +95,13 @@ class RunStore:
 
     def save_run(self, run: dict[str, Any]) -> dict[str, Any]:
         now = time()
+        runtime = dict(run.get("runtime", {}))
+        result = dict(runtime.get("result", {})) if isinstance(runtime.get("result"), dict) else {}
+        for key in ("finalAnswer", "resultType", "verification"):
+            if key in run:
+                result[key] = run[key]
+        if result:
+            runtime["result"] = result
         with self._lock, self._connection() as conn:
             previous = conn.execute("select created_at from runs where id = ?", (run["id"],)).fetchone()
             conn.execute(
@@ -131,7 +138,7 @@ class RunStore:
                     _json_dumps(run.get("steps", [])),
                     _json_dumps(run.get("artifacts", [])),
                     _json_dumps(run.get("log", [])),
-                    _json_dumps(run.get("runtime", {})),
+                    _json_dumps(runtime),
                     previous["created_at"] if previous else now,
                     now,
                 ),
@@ -274,7 +281,8 @@ class RunStore:
         ]
 
     def _row_to_run(self, row: sqlite3.Row) -> dict[str, Any]:
-        return {
+        runtime = _json_loads(row["runtime_json"], {})
+        run = {
             "id": row["id"],
             "title": row["title"],
             "prompt": row["prompt"],
@@ -287,8 +295,17 @@ class RunStore:
             "steps": _json_loads(row["steps_json"], []),
             "artifacts": _json_loads(row["artifacts_json"], []),
             "log": _json_loads(row["log_json"], []),
-            "runtime": _json_loads(row["runtime_json"], {}),
+            "runtime": runtime,
         }
+        result = runtime.get("result") if isinstance(runtime, dict) else None
+        if isinstance(result, dict):
+            if isinstance(result.get("finalAnswer"), str):
+                run["finalAnswer"] = result["finalAnswer"]
+            if isinstance(result.get("resultType"), str):
+                run["resultType"] = result["resultType"]
+            if isinstance(result.get("verification"), dict):
+                run["verification"] = result["verification"]
+        return run
 
     def _row_to_job(self, row: sqlite3.Row) -> dict[str, Any]:
         return {
