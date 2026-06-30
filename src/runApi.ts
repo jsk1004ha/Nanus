@@ -3,7 +3,7 @@ import { backendApiUrl, backendEnabled, backendWebSocketUrl } from "./backendCon
 
 interface BackendRunEvent {
   type: string;
-  payload?: { run?: ActiveRun; message?: string };
+  payload?: { run?: ActiveRun; message?: string; content?: string; delta?: string };
   run?: ActiveRun;
   message?: string | null;
 }
@@ -61,12 +61,20 @@ async function createBackendRun(input: string, mode: WorkspaceMode): Promise<Act
 function subscribeToRun(runId: string, onRun: (run: ActiveRun) => void, onFallback: (reason: string) => void) {
   let closed = false;
   let finished = false;
+  let latestRun: ActiveRun | null = null;
   const socket = new WebSocket(backendWebSocketUrl(`/ws/run/${encodeURIComponent(runId)}`));
   socket.addEventListener("message", (event) => {
     try {
       const payload = JSON.parse(event.data as string) as BackendRunEvent;
-      const run = payload.payload?.run ?? payload.run;
-      if (run) onRun(asBackendRun(run));
+      const eventRun = payload.payload?.run ?? payload.run;
+      if (eventRun) {
+        latestRun = asBackendRun(eventRun);
+        onRun(latestRun);
+      } else if (payload.type === "assistant.message.delta" && latestRun && typeof payload.payload?.content === "string") {
+        latestRun = asBackendRun({ ...latestRun, finalAnswer: payload.payload.content });
+        onRun(latestRun);
+      }
+      const run = eventRun ?? latestRun;
       if (payload.type === "run.done" || (run && isTerminalRun(run))) finished = true;
       if (payload.type === "error") onFallback(payload.payload?.message ?? payload.message ?? "stream error");
     } catch {
