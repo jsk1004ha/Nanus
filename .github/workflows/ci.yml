@@ -1,0 +1,52 @@
+name: Nanus CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Backend tests
+        run: npm run backend:test
+        env:
+          NANUS_CODEX_ENABLED: 'false'
+          NANUS_ANTHROPIC_ENABLED: 'false'
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: npm run test:e2e:run
+        env:
+          NANUS_CODEX_ENABLED: 'false'
+          NANUS_ANTHROPIC_ENABLED: 'false'
