@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from .artifact_validation import validate_artifacts
 from .codex_bridge import CodexBridge
 from .llm import AnthropicMessagesClient
 from .tooling import (
@@ -46,26 +47,14 @@ def _answer(result: dict[str, Any]) -> str:
     return text
 
 
-def _download_ok(artifact: dict[str, Any]) -> bool:
-    content = artifact.get("content")
-    if not isinstance(content, dict):
-        return True
-    download = content.get("download")
-    if not isinstance(download, dict):
-        return True
-    return bool(download.get("filename")) and bool(download.get("mimeType")) and int(download.get("size") or 0) > 0
-
-
 def _verify(result: dict[str, Any], final_answer: str, artifacts: list[dict[str, Any]]) -> dict[str, Any]:
     raw = result.get("verification") if isinstance(result.get("verification"), dict) else {}
-    errors = [str(item) for item in raw.get("errors", []) if str(item).strip()]
-    warnings = [str(item) for item in raw.get("warnings", []) if str(item).strip()]
+    artifact_report = validate_artifacts(artifacts)
+    errors = [str(item) for item in raw.get("errors", []) if str(item).strip()] + artifact_report["errors"]
+    warnings = [str(item) for item in raw.get("warnings", []) if str(item).strip()] + artifact_report["warnings"]
     fallback = bool(raw.get("fallbackUsed"))
-    artifacts_ok = all(_download_ok(artifact) for artifact in artifacts)
     if not final_answer:
         errors.append("finalAnswer is missing")
-    if not artifacts_ok:
-        errors.append("artifact integrity check failed")
     if fallback and not warnings:
         warnings.append("fallback runtime used")
     return {
@@ -74,7 +63,8 @@ def _verify(result: dict[str, Any], final_answer: str, artifacts: list[dict[str,
         "fallbackUsed": fallback,
         "status": "failed" if errors else "degraded" if fallback else "verified",
         "finalAnswerPresent": bool(final_answer),
-        "artifactIntegrityOk": artifacts_ok,
+        "artifactIntegrityOk": artifact_report["ok"],
+        "artifactChecks": artifact_report["checks"],
         "traceClosed": True,
         "streaming": True,
         "errors": errors,
@@ -136,24 +126,22 @@ class ExecutionEngine:
             runtime = run.setdefault("runtime", {})
             runtime["agentLoop"] = []
             runtime["subtasks"] = _subtasks(str(run.get("kind") or "general"))
+            _append_log(run, "백그라운드 작업자가 실행을 시작했습니다.")
             _append_log(run, "Agent runtime started.")
             self._update_message(run, status="running")
             self._persist_and_emit(run, "run.started")
             self._event(run_id, "subtasks.created", {"runId": run_id, "subtasks": runtime["subtasks"]})
-
             run = await self._phase(run_id, job_id, "plan", "Planner", "작업을 하위 실행 단위로 나눕니다.", 0)
             if not run:
                 return
             self._mark_subtasks(run, "planned")
             self._persist_and_emit(run, "subtasks.updated")
-
             run = await self._phase(run_id, job_id, "execute", "Tool Executor", "선택한 도구와 산출물 생성기를 실행합니다.", min(1, len(run.get("steps", [])) - 1))
             if not run:
                 return
             result = await self._execute_adapter(run)
             final = _answer(result)
             artifacts = [artifact for artifact in result.get("artifacts", []) if isinstance(artifact, dict)]
-
             run = self.store.get_run(run_id) or run
             run["resultType"] = str(result.get("resultType") or run.get("kind") or "answer")
             run["verification"] = _verify(result, final, artifacts)
@@ -165,7 +153,7 @@ class ExecutionEngine:
             self._update_message(run, content=final, status="degraded" if run["verification"]["status"] == "degraded" else "complete")
             for line in result.get("logs", []):
                 _append_log(run, line)
-
+            _append_log(run, "최종 답변 contract: finalAnswer 검증 완료")
             stored_artifacts: list[dict[str, Any]] = []
             for artifact in artifacts:
                 stored = self.store.add_artifact(run_id, artifact)
@@ -178,7 +166,6 @@ class ExecutionEngine:
             self._event(run_id, "assistant.message.completed", {"runId": run_id, "assistantMessageId": _assistant_message_id(run), "finalAnswer": final, "resultType": run.get("resultType"), "verification": run.get("verification")})
             self._mark_subtasks(run, "completed")
             self._persist_and_emit(run)
-
             run = await self._phase(run_id, job_id, "verify", "Verifier", "답변과 산출물 무결성을 확인합니다.", max(0, len(run.get("steps", [])) - 1))
             if not run:
                 return
@@ -202,7 +189,7 @@ class ExecutionEngine:
         prompt = run.get("prompt") or run.get("command") or run.get("title") or ""
         command = run.get("command", "/run")
         kind = run.get("kind", "general")
-        if self.codex.should_handle(command, prompt, kind):
+        if self.codex.should_handle(command, prompt, kind) or (self.codex.enabled and kind == "general"):
             return await self._codex_result(run, prompt, kind)
         if command in {"/artifact-studio", "/artifact"}:
             return await artifact_studio_bundle(prompt, self.llm)
@@ -222,13 +209,7 @@ class ExecutionEngine:
 
     async def _codex_result(self, run: dict[str, Any], prompt: str, kind: str) -> dict[str, Any]:
         result = await self.codex.run(prompt or run.get("title") or "Nanus task")
-        return {
-            "finalAnswer": result.text,
-            "resultType": "code_patch" if result.live and kind in {"app", "site"} else "codex_answer",
-            "verification": {"backendUsed": True, "llmUsed": result.live, "fallbackUsed": not result.live, "errors": [], "warnings": [] if result.live else ["Codex fallback used"]},
-            "logs": [f"Codex Bridge: {'live codex exec' if result.live else 'deterministic fallback'}"],
-            "artifacts": [{"id": f"codex-{run['id'][:8]}", "title": f"{run['title']} Codex 결과", "type": "codex-summary", "content": {"text": result.text, "live": result.live, "command": result.command}}],
-        }
+        return {"finalAnswer": result.text, "resultType": "code_patch" if result.live and kind in {"app", "site"} else "codex_answer", "verification": {"backendUsed": True, "llmUsed": result.live, "fallbackUsed": not result.live, "errors": [], "warnings": [] if result.live else ["Codex fallback used"]}, "logs": [f"Codex Bridge: {'live codex exec' if result.live else 'deterministic fallback'}"], "artifacts": [{"id": f"codex-{run['id'][:8]}", "title": f"{run['title']} Codex 결과", "type": "codex-summary", "content": {"text": result.text, "live": result.live, "command": result.command}}]}
 
     async def _stream_answer(self, run: dict[str, Any], final_answer: str) -> None:
         run_id = str(run["id"])
