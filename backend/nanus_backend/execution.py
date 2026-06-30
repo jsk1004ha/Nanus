@@ -6,12 +6,12 @@ from typing import Any
 from .artifact_validation import validate_artifacts
 from .codex_bridge import CodexBridge
 from .llm import AnthropicMessagesClient
+from .research_tools import research_brief
 from .tooling import (
     artifact_studio_bundle,
     deck_from_brief,
     document_from_prompt,
     generic_llm_result,
-    research_brief,
     spreadsheet_from_prompt,
     visualization_from_prompt,
     writing_advice,
@@ -150,15 +150,19 @@ class ExecutionEngine:
             final = _answer(result)
             artifacts = [artifact for artifact in result.get("artifacts", []) if isinstance(artifact, dict)]
             run = self.store.get_run(run_id) or run
-            run["resultType"] = str(result.get("resultType") or run.get("kind") or "answer")
-            run["verification"] = _verify(result, final, artifacts)
-            if run["verification"]["status"] == "failed":
-                raise RuntimeError("; ".join(run["verification"]["errors"]))
+            result_type = str(result.get("resultType") or run.get("kind") or "answer")
+            verification = _verify(result, final, artifacts)
+            run["resultType"] = result_type
+            run["verification"] = verification
+            if verification["status"] == "failed":
+                raise RuntimeError("; ".join(verification["errors"]))
             if int(run.get("runtime", {}).get("streamedDeltaCount", 0)) == 0:
                 await self._stream_answer(run, final)
             run = self.store.get_run(run_id) or run
+            run["resultType"] = result_type
+            run["verification"] = verification
             run["finalAnswer"] = final
-            self._update_message(run, content=final, status="degraded" if run["verification"]["status"] == "degraded" else "complete")
+            self._update_message(run, content=final, status="degraded" if verification["status"] == "degraded" else "complete")
             for line in result.get("logs", []):
                 _append_log(run, line)
             _append_log(run, "최종 답변 contract: finalAnswer 검증 완료")

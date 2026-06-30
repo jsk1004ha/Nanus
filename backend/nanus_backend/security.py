@@ -32,22 +32,29 @@ class SecurityPolicy:
             per_minute = 120
         return cls(api_keys=keys, auth_required=auth_required, rate_limit_per_minute=max(1, per_minute))
 
-    def check_auth(self, request: Request) -> JSONResponse | None:
-        if not self.auth_required or request.url.path in {"/health"}:
-            return None
+    def _public_request(self, request: Request) -> bool:
+        return request.method == "OPTIONS" or is_path_public(request.url.path)
+
+    def _api_key_from_request(self, request: Request) -> str:
         supplied = request.headers.get("x-nanus-api-key", "").strip()
         auth = request.headers.get("authorization", "").strip()
         if auth.lower().startswith("bearer "):
             supplied = auth.split(" ", 1)[1].strip()
+        return supplied
+
+    def check_auth(self, request: Request) -> JSONResponse | None:
+        if not self.auth_required or self._public_request(request):
+            return None
+        supplied = self._api_key_from_request(request)
         if supplied and supplied in self.api_keys:
             return None
         return JSONResponse({"detail": "Nanus API authentication required"}, status_code=401)
 
     def check_rate_limit(self, request: Request) -> JSONResponse | None:
-        if request.url.path in {"/health"}:
+        if self._public_request(request):
             return None
         now = time.time()
-        identity = request.headers.get("x-nanus-api-key") or (request.client.host if request.client else "unknown")
+        identity = self._api_key_from_request(request) or (request.client.host if request.client else "unknown")
         bucket = self.buckets.get(identity)
         if not bucket or now - bucket.window_started >= 60:
             self.buckets[identity] = RateBucket(window_started=now, count=1)

@@ -3,16 +3,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-import ipaddress
 import json
 import os
 import re
-import socket
-import urllib.request
 from pathlib import Path
 from time import time
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
@@ -21,10 +18,12 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 
 from .artifact_validation import validate_artifacts
+from .browser_tools import BrowserSafetyError, browser_snapshot as safe_browser_snapshot
 from .codex_bridge import CodexBridge
 from .execution import ExecutionEngine
 from .llm import AnthropicMessagesClient
 from .run_model import create_run
+from .security import SecurityPolicy
 from .storage import RunStore
 from .supervisor import JobSupervisor
 from .tooling import artifact_studio_bundle, deck_from_brief, generic_llm_result, list_skill_tools, writing_advice
@@ -216,36 +215,6 @@ def _assemble_run_input(root: Path, message: str, document_ids: list[str]) -> tu
     return f"{message}\n\n[Nanus Retrieved Document Context]\n{context}\n[/Nanus Retrieved Document Context]", matches
 
 
-def _blocked_ip(hostname: str) -> bool:
-    try:
-        addresses = socket.getaddrinfo(hostname, None)
-    except socket.gaierror:
-        raise HTTPException(status_code=422, detail="Browser target host cannot be resolved")
-    for item in addresses:
-        ip = ipaddress.ip_address(item[4][0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
-            return True
-    return False
-
-
-def _browser_snapshot(url: str) -> dict[str, Any]:
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise HTTPException(status_code=422, detail="Only http(s) URLs can be browsed")
-    host = parsed.hostname or ""
-    if _blocked_ip(host):
-        raise HTTPException(status_code=403, detail="Local/private browser targets are blocked")
-    request = urllib.request.Request(url, headers={"user-agent": "NanusBrowser/0.1"})
-    with urllib.request.urlopen(request, timeout=12) as response:
-        raw = response.read(1_000_000).decode("utf-8", errors="replace")
-    title_match = re.search(r"<title[^>]*>(.*?)</title>", raw, flags=re.IGNORECASE | re.DOTALL)
-    title = re.sub(r"\s+", " ", title_match.group(1)).strip() if title_match else url
-    cleaned = re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>", " ", raw, flags=re.IGNORECASE)
-    text = re.sub(r"<[^>]+>", " ", cleaned)
-    text = re.sub(r"\s+", " ", text).strip()[:6000]
-    return {"url": url, "title": title, "text": text, "engine": "urllib-browser-snapshot", "charCount": len(text), "trace": {"allowedHost": host, "bytesReadLimit": 1_000_000}}
-
-
 def _approval(run: dict[str, Any]) -> dict[str, Any] | None:
     runtime = run.get("runtime") if isinstance(run.get("runtime"), dict) else {}
     approval = runtime.get("approval") if isinstance(runtime.get("approval"), dict) else None
@@ -259,6 +228,7 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
     codex = CodexBridge()
     engine = ExecutionEngine(store, llm=llm, codex=codex)
     supervisor = JobSupervisor(store, engine)
+    security = SecurityPolicy.from_env()
     app = FastAPI(title="Nanus Execution Backend", version="0.2.0")
     app.state.store = store
     app.state.documents_root = document_root
@@ -266,7 +236,15 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
     app.state.codex = codex
     app.state.engine = engine
     app.state.supervisor = supervisor
+    app.state.production_security = security
     app.add_middleware(CORSMiddleware, allow_origins=_cors_origins(), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+    @app.middleware("http")
+    async def enforce_production_security(request, call_next):
+        denied = security.check_auth(request) or security.check_rate_limit(request)
+        if denied:
+            return denied
+        return await call_next(request)
 
     @app.on_event("startup")
     async def recover_background_jobs() -> None:
@@ -404,7 +382,7 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
         return {"document": document}
 
     @app.post("/api/browser/snapshot")
-    def browser_snapshot(payload: BrowserSnapshotRequest) -> dict[str, Any]:
+    async def browser_snapshot(payload: BrowserSnapshotRequest) -> dict[str, Any]:
         if payload.runId and not payload.approved:
             run = store.get_run(payload.runId)
             if not run:
@@ -416,7 +394,21 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
             store.save_run(run)
             event = store.add_event(run["id"], "approval.requested", {"run": run, "approval": approval})
             return {"status": "waiting", "approval": approval, "run": run, "event": event}
-        snapshot = _browser_snapshot(payload.url)
+        try:
+            result = await safe_browser_snapshot(payload.url)
+        except BrowserSafetyError as exc:
+            message = str(exc)
+            status_code = 403 if "private" in message.lower() or "local" in message.lower() else 422
+            raise HTTPException(status_code=status_code, detail=message) from exc
+        snapshot = {
+            "url": result.url,
+            "finalUrl": result.final_url,
+            "title": result.title,
+            "text": result.text,
+            "engine": result.engine,
+            "charCount": result.char_count,
+            "trace": result.trace,
+        }
         if payload.runId:
             artifact = {"id": f"browser-{uuid4().hex[:8]}", "title": snapshot["title"], "type": "browser-snapshot", "content": snapshot}
             stored = store.add_artifact(payload.runId, artifact)

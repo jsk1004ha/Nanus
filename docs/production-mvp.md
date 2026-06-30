@@ -26,7 +26,14 @@ This document defines what the current Nanus MVP guarantees after the production
 
 - Browser snapshot is read-only and requires explicit approval when attached to a run.
 - Private, loopback, link-local, multicast, and reserved IP targets are blocked by DNS resolution before fetching.
+- Browser fetching is routed through the shared `browser_tools` safety layer, with optional Playwright capture and safe urllib fallback.
 - Approval confirm/reject events are persisted and affect run state.
+
+## Production guardrails
+
+- `NANUS_API_KEYS` or `NANUS_AUTH_REQUIRED=true` enables API key authentication for non-public API routes.
+- API keys are accepted through `Authorization: Bearer <key>` or `x-nanus-api-key`.
+- `NANUS_RATE_LIMIT_PER_MINUTE` applies an in-memory per-key/IP request limit.
 
 ## Test coverage
 
@@ -38,5 +45,7 @@ The backend test suite covers:
 - XLSX workbook package structure
 - document upload and RAG context injection
 - browser approval/reject flow and private target blocking
+- API key authentication and rate limiting
+- tool-use research lane wiring
 - payload size boundaries
 - Codex bridge fallback and live bridge injection path

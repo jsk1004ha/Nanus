@@ -19,6 +19,9 @@ from nanus_backend.api import MAX_RUN_INPUT_CHARS, create_app  # noqa: E402
 def make_client(tmp_path: Path) -> TestClient:
     os.environ.pop("ANTHROPIC_API_KEY", None)
     os.environ.pop("NANUS_CORS_ORIGINS", None)
+    os.environ.pop("NANUS_AUTH_REQUIRED", None)
+    os.environ.pop("NANUS_API_KEYS", None)
+    os.environ.pop("NANUS_RATE_LIMIT_PER_MINUTE", None)
     os.environ["NANUS_CODEX_ENABLED"] = "false"
     return TestClient(create_app(db_path=tmp_path / "nanus-test.sqlite3"))
 
@@ -26,6 +29,9 @@ def make_client(tmp_path: Path) -> TestClient:
 def make_client_with_unset_codex(tmp_path: Path) -> TestClient:
     os.environ.pop("ANTHROPIC_API_KEY", None)
     os.environ.pop("NANUS_CORS_ORIGINS", None)
+    os.environ.pop("NANUS_AUTH_REQUIRED", None)
+    os.environ.pop("NANUS_API_KEYS", None)
+    os.environ.pop("NANUS_RATE_LIMIT_PER_MINUTE", None)
     os.environ.pop("NANUS_CODEX_ENABLED", None)
     return TestClient(create_app(db_path=tmp_path / "nanus-unset-codex.sqlite3"))
 
@@ -127,6 +133,38 @@ def test_browser_snapshot_requires_approval_and_blocks_private_targets(tmp_path:
     assert rejected.json()["run"]["status"] == "cancelled"
     blocked = client.post("/api/browser/snapshot", json={"url": "http://127.0.0.1:1234", "approved": True})
     assert blocked.status_code == 403
+
+
+def test_research_runs_use_tool_use_research_lane(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    created = client.post("/api/runs", json={"input": "/research Nanus 생산성 근거 조사", "mode": "local"})
+
+    assert created.status_code == 200
+    assert created.json()["kind"] == "research"
+    final_run = wait_for_terminal_run(client, created.json()["id"])
+
+    assert final_run["status"] == "degraded"
+    assert final_run["resultType"] == "research_brief"
+    assert any(line.startswith("Tool calls:") for line in final_run["log"])
+    artifacts = client.get(f"/api/runs/{created.json()['id']}/artifacts").json()["artifacts"]
+    citations = next(artifact for artifact in artifacts if artifact["type"] == "citations")
+    assert citations["content"]["citations"][0]["url"].startswith("nanus://")
+
+
+def test_api_key_auth_and_rate_limit_are_enforced(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("NANUS_CORS_ORIGINS", raising=False)
+    monkeypatch.setenv("NANUS_CODEX_ENABLED", "false")
+    monkeypatch.setenv("NANUS_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("NANUS_API_KEYS", "secret-key")
+    monkeypatch.setenv("NANUS_RATE_LIMIT_PER_MINUTE", "2")
+    client = TestClient(create_app(db_path=tmp_path / "secure.sqlite3"))
+
+    assert client.get("/health").status_code == 200
+    assert client.get("/api/tools").status_code == 401
+    assert client.get("/api/tools", headers={"Authorization": "Bearer secret-key"}).status_code == 200
+    assert client.get("/api/tools", headers={"x-nanus-api-key": "secret-key"}).status_code == 200
+    assert client.get("/api/tools", headers={"x-nanus-api-key": "secret-key"}).status_code == 429
 
 
 def test_general_run_uses_live_codex_when_bridge_is_enabled(tmp_path: Path) -> None:
