@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+test-results/
+playwright-report/
+.omx/logs/
+.omx/metrics.json
+.omx/state/hud-state.json
+.omx/state/notify-hook-state.json
+.omx/state/skill-active-state.json
+.omx/state/team-leader-nudge.json
+.omx/state/tmux-hook-state.json
