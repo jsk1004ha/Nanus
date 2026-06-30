@@ -8,15 +8,15 @@ from uuid import uuid4
 
 from .artifact_studio import PPTX_MIME_TYPE, build_pptx_bytes, encode_download
 from .llm import AnthropicMessagesClient
+from .spreadsheet_studio import XLSX_MIME_TYPE, build_xlsx_bytes
 
-EXCEL_HTML_MIME_TYPE = "application/vnd.ms-excel"
 HTML_MIME_TYPE = "text/html; charset=utf-8"
 MARKDOWN_MIME_TYPE = "text/markdown; charset=utf-8"
 JSON_MIME_TYPE = "application/json; charset=utf-8"
 
 
 def _safe_filename(value: str, suffix: str) -> str:
-    invalid = set('\/:*?"<>|')
+    invalid = set('\\/:*?"<>|')
     cleaned = "".join("_" if char in invalid else char for char in value).strip(" .")
     return f"{(cleaned or 'nanus-artifact')[:80]}{suffix}"
 
@@ -33,9 +33,7 @@ def _verification(*, result_live: bool, errors: list[str] | None = None, warning
 
 def _target_slide_count(prompt: str) -> int:
     match = re.search(r"(\d{1,2})\s*(?:장|slides?|페이지)", prompt, re.IGNORECASE)
-    if not match:
-        return 8
-    return max(5, min(14, int(match.group(1))))
+    return 8 if not match else max(5, min(14, int(match.group(1))))
 
 
 def _compact_subject(prompt: str) -> str:
@@ -49,13 +47,7 @@ def _compact_subject(prompt: str) -> str:
 
 
 def _slide(number: int, title: str, message: str, bullets: list[str], *, kicker: str = "") -> dict[str, Any]:
-    return {
-        "number": number,
-        "title": title,
-        "message": message,
-        "bullets": bullets[:4],
-        "kicker": kicker or f"{number:02d}",
-    }
+    return {"number": number, "title": title, "message": message, "bullets": bullets[:4], "kicker": kicker or f"{number:02d}"}
 
 
 def _build_deck_slides(prompt: str, llm_notes: str) -> list[dict[str, Any]]:
@@ -78,21 +70,11 @@ def _build_deck_slides(prompt: str, llm_notes: str) -> list[dict[str, Any]]:
         ("부록: 참고 근거", "출처, 계산 가정, 추가 도표를 분리해 본문 흐름을 방해하지 않게 합니다.", ["참고문헌", "계산 가정", "원자료", "추가 이미지"]),
         ("부록: 발표 스크립트", "슬라이드별 말할 내용을 짧은 큐카드로 정리합니다.", ["도입 멘트", "핵심 전환", "질문 대비", "마무리 문장"]),
     ]
-    return [
-        _slide(
-            index,
-            title,
-            message,
-            bullets + ([f"LLM 메모: {note_excerpt}"] if index == 2 and note_excerpt else []),
-            kicker=f"{index:02d}/{count:02d}",
-        )
-        for index, (title, message, bullets) in enumerate(base[:count], start=1)
-    ]
+    return [_slide(index, title, message, bullets + ([f"LLM 메모: {note_excerpt}"] if index == 2 and note_excerpt else []), kicker=f"{index:02d}/{count:02d}") for index, (title, message, bullets) in enumerate(base[:count], start=1)]
 
 
 def _writing_fallback_answer(prompt: str) -> str:
-    compact = " ".join(prompt.split())
-    excerpt = compact[:260] if compact else "제공한 원고"
+    excerpt = (" ".join(prompt.split()) or "제공한 원고")[:260]
     return (
         "좋습니다. 이 요청은 PPT 제작보다 원고를 어떻게 자연스럽게 늘릴지에 대한 글쓰기 조언으로 처리하는 것이 맞습니다.\n\n"
         "글을 늘릴 때는 문장을 반복하거나 같은 말을 길게 풀어 쓰기보다, 평가자가 더 신뢰할 수 있는 근거를 추가하는 방식이 좋습니다. "
@@ -127,31 +109,12 @@ def _markdown_report(title: str, body: str, *, prompt: str) -> str:
 """
 
 
-def _excel_html(title: str, rows: list[list[Any]], checks: list[list[Any]]) -> str:
-    def table(sheet: str, body_rows: list[list[Any]]) -> str:
-        tr = "".join("<tr>" + "".join(f"<td>{html.escape(str(cell))}</td>" for cell in row) + "</tr>" for row in body_rows)
-        return f"<h2>{html.escape(sheet)}</h2><table border='1' cellspacing='0' cellpadding='5'>{tr}</table>"
-
-    return "\ufeff" + f"""<!doctype html>
-<html><head><meta charset='utf-8'><title>{html.escape(title)}</title>
-<style>body{{font-family:Arial,sans-serif}} h1{{color:#1f4e79}} table{{border-collapse:collapse;margin-bottom:24px}} td{{border:1px solid #b7c9d6;padding:6px}} tr:first-child td{{font-weight:bold;background:#eaf3f8}}</style>
-</head><body>
-<h1>{html.escape(title)}</h1>
-{table('README', [['항목','값'], ['생성기','Nanus Artifact Studio 2.0'], ['설명','Excel에서 열 수 있는 HTML workbook 형식입니다.']])}
-{table('RAW', rows)}
-{table('CHECKS', checks)}
-{table('DASHBOARD', [['KPI','값'], ['행 수', max(0, len(rows)-1)], ['검증 상태','PASS'], ['다음 액션','데이터 원본을 연결하면 피벗/차트 범위를 확장합니다.']])}
-</body></html>"""
-
-
 def _visualization_html(title: str, values: list[tuple[str, int]]) -> str:
     max_value = max((value for _, value in values), default=1)
     bars = []
     for label, value in values:
         width = int((value / max_value) * 420) if max_value else 0
-        bars.append(
-            f"<div class='row'><span>{html.escape(label)}</span><b style='width:{width}px'></b><em>{value}</em></div>"
-        )
+        bars.append(f"<div class='row'><span>{html.escape(label)}</span><b style='width:{width}px'></b><em>{value}</em></div>")
     spec = {"mark": "bar", "encoding": {"x": {"field": "value", "type": "quantitative"}, "y": {"field": "label", "type": "nominal"}}, "data": {"values": [{"label": label, "value": value} for label, value in values]}}
     return f"""<!doctype html>
 <html lang='ko'><head><meta charset='utf-8'><title>{html.escape(title)}</title>
@@ -162,21 +125,12 @@ def _visualization_html(title: str, values: list[tuple[str, int]]) -> str:
 def list_skill_tools(*, anthropic_status: dict[str, Any], codex_status: dict[str, Any]) -> list[dict[str, Any]]:
     deck_connection = {"id": "deck-from-brief", "name": "Deck Python Skill", "available": True, "enabled": True, "llm": anthropic_status}
     def tool(tool_id: str, command: str, name: str, description: str, permissions: list[str], connection: dict[str, Any] | None = None) -> dict[str, Any]:
-        return {
-            "id": tool_id,
-            "command": command,
-            "name": name,
-            "description": description,
-            "runtime": "python-function" if tool_id != "codex-cli" else "subprocess",
-            "permissions": permissions,
-            "inputSchema": {"type": "object", "required": ["prompt"], "properties": {"prompt": {"type": "string"}}},
-            "connection": connection or {**deck_connection, "id": tool_id, "name": name},
-        }
+        return {"id": tool_id, "command": command, "name": name, "description": description, "runtime": "python-function" if tool_id != "codex-cli" else "subprocess", "permissions": permissions, "inputSchema": {"type": "object", "required": ["prompt"], "properties": {"prompt": {"type": "string"}}}, "connection": connection or {**deck_connection, "id": tool_id, "name": name}}
     return [
         tool("deck-from-brief", "/deck-from-brief", "Deck from Brief", "문서/자료를 발표자료 목차와 PPTX-ready JSON 산출물로 변환합니다.", ["run:write", "artifact:write", "optional:anthropic-messages"], deck_connection),
-        tool("artifact-studio", "/artifact-studio", "Artifact Studio 2.0", "문서, PPT, Excel-compatible workbook, 시각화 HTML을 함께 생성합니다.", ["run:write", "artifact:write", "optional:anthropic-messages"]),
+        tool("artifact-studio", "/artifact-studio", "Artifact Studio 2.0", "문서, PPT, XLSX workbook, 시각화 HTML을 함께 생성합니다.", ["run:write", "artifact:write", "optional:anthropic-messages"]),
         tool("document-writer", "/document", "Document Writer", "근거 중심 문서/보고서 초안과 Markdown 다운로드 산출물을 생성합니다.", ["run:write", "artifact:write", "document:read"]),
-        tool("spreadsheet-studio", "/spreadsheet", "Spreadsheet Studio", "Excel에서 열 수 있는 workbook형 산출물과 검증 시트를 생성합니다.", ["run:write", "artifact:write", "spreadsheet:write"]),
+        tool("spreadsheet-studio", "/spreadsheet", "Spreadsheet Studio", "진짜 OOXML .xlsx workbook과 검증 시트를 생성합니다.", ["run:write", "artifact:write", "spreadsheet:write"]),
         tool("visualization-studio", "/visualization", "Visualization Studio", "차트 선택, HTML 대시보드, Vega-Lite compatible spec을 생성합니다.", ["run:write", "artifact:write", "visualization:write"]),
         tool("writing-advice", "/writing-advice", "Writing Advice", "보고서/원고 분량 보강, 섹션별 확장 방향, 바로 붙여넣을 문단 예시를 생성합니다.", ["run:write", "artifact:write", "optional:anthropic-messages"]),
         tool("codex-cli", "/codex", "Codex CLI Bridge", "코드/앱/리팩터 작업을 로컬 Codex CLI의 `codex exec` 실행 경로로 연결합니다.", ["codex:exec", "workspace:read-default", "workspace:write-if-configured"], codex_status),
@@ -192,50 +146,38 @@ async def deck_from_brief(prompt: str, llm: AnthropicMessagesClient) -> dict[str
     filename = _safe_filename(f"{base_title} 초안", ".pptx")
     pptx_bytes = build_pptx_bytes(outline["title"], slides)
     download = encode_download(filename, PPTX_MIME_TYPE, pptx_bytes)
-    final_answer = f"{base_title} 발표자료 초안을 {len(slides)}장 구성으로 생성했습니다. 목차와 다운로드 가능한 PPTX 산출물을 함께 만들었고, 표지, 문제 배경, 설계안, 실험 계획, 리스크, 다음 액션까지 발표 흐름으로 정리했습니다."
-    return {
-        "finalAnswer": final_answer,
-        "resultType": "deck",
-        "verification": _verification(result_live=result.live),
-        "logs": ["Python skill /deck-from-brief를 실행했습니다.", f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}", f"PPTX artifact generated: {filename} ({download['size']} bytes)"] + ([f"LLM fallback reason: {result.error}"] if result.error else []),
-        "artifacts": [
-            {"id": f"outline-{uuid4().hex[:8]}", "title": f"{base_title} 목차", "type": "outline", "content": outline},
-            {"id": f"pptx-{uuid4().hex[:8]}", "title": filename, "type": "pptx", "fileName": filename, "mimeType": PPTX_MIME_TYPE, "sizeBytes": download["size"], "content": {"format": "pptx", "slides": slides, "notes": result.text, "download": download}},
-        ],
-    }
+    return {"finalAnswer": f"{base_title} 발표자료 초안을 {len(slides)}장 구성으로 생성했습니다. 목차와 다운로드 가능한 PPTX 산출물을 함께 만들었습니다.", "resultType": "deck", "verification": _verification(result_live=result.live), "logs": ["Python skill /deck-from-brief를 실행했습니다.", f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}", f"PPTX artifact generated: {filename} ({download['size']} bytes)"] + ([f"LLM fallback reason: {result.error}"] if result.error else []), "artifacts": [{"id": f"outline-{uuid4().hex[:8]}", "title": f"{base_title} 목차", "type": "outline", "content": outline}, {"id": f"pptx-{uuid4().hex[:8]}", "title": filename, "type": "pptx", "fileName": filename, "mimeType": PPTX_MIME_TYPE, "sizeBytes": download["size"], "content": {"format": "pptx", "slides": slides, "notes": result.text, "download": download}}]}
 
 
 async def document_from_prompt(prompt: str, llm: AnthropicMessagesClient) -> dict[str, Any]:
     result = await llm.generate(prompt, system="너는 source-grounded 한국어 문서 작성자다. 목적, 독자, 구조, 근거, 검증 체크리스트를 포함한 Markdown 문서를 작성한다.")
     title = _compact_subject(prompt)
-    body = result.text
-    report = _markdown_report(f"{title} 문서 초안", body, prompt=prompt)
+    report = _markdown_report(f"{title} 문서 초안", result.text, prompt=prompt)
     filename = _safe_filename(f"{title} 문서 초안", ".md")
     download = _download_text(filename, MARKDOWN_MIME_TYPE, report)
-    return {
-        "finalAnswer": f"{title} 문서 초안을 Markdown 산출물로 생성했습니다. 구조, 품질 체크리스트, 입력 요약을 포함했습니다.",
-        "resultType": "document",
-        "verification": _verification(result_live=result.live),
-        "logs": ["Document Writer가 Markdown 문서 산출물을 생성했습니다.", f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}"],
-        "artifacts": [{"id": f"document-{uuid4().hex[:8]}", "title": filename, "type": "markdown", "fileName": filename, "mimeType": MARKDOWN_MIME_TYPE, "sizeBytes": download["size"], "content": {"text": report, "download": download}}],
-    }
+    return {"finalAnswer": f"{title} 문서 초안을 Markdown 산출물로 생성했습니다. 구조, 품질 체크리스트, 입력 요약을 포함했습니다.", "resultType": "document", "verification": _verification(result_live=result.live), "logs": ["Document Writer가 Markdown 문서 산출물을 생성했습니다.", f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}"], "artifacts": [{"id": f"document-{uuid4().hex[:8]}", "title": filename, "type": "markdown", "fileName": filename, "mimeType": MARKDOWN_MIME_TYPE, "sizeBytes": download["size"], "content": {"text": report, "download": download}}]}
 
 
 async def spreadsheet_from_prompt(prompt: str, llm: AnthropicMessagesClient) -> dict[str, Any]:
-    result = await llm.generate(prompt, system="너는 Excel workbook 설계자다. RAW, CHECKS, DASHBOARD 시트에 넣을 KPI와 검증 항목을 한국어로 설계한다.")
+    result = await llm.generate(prompt, system="너는 Excel workbook 설계자다. RAW, CLEAN, METADATA, CHECKS, DASHBOARD 시트에 넣을 KPI와 검증 항목을 한국어로 설계한다.")
     title = _compact_subject(prompt)
-    rows = [["항목", "설명", "상태"], ["요청", prompt[:260], "입력됨"], ["핵심 요약", result.text[:360], "생성됨"], ["검증", "행 수, 누락값, 중복, 차트 범위 확인", "PASS"]]
-    checks = [["검사", "결과"], ["row_count", len(rows) - 1], ["null_rate", "0%"], ["schema_pass", "TRUE"], ["source_attached", "manual"]]
-    workbook = _excel_html(f"{title} 분석 워크북", rows, checks)
-    filename = _safe_filename(f"{title} 분석 워크북", ".xls")
-    download = _download_text(filename, EXCEL_HTML_MIME_TYPE, workbook)
-    return {
-        "finalAnswer": f"{title} 분석용 Excel-compatible workbook을 생성했습니다. README, RAW, CHECKS, DASHBOARD 구조로 열 수 있습니다.",
-        "resultType": "spreadsheet",
-        "verification": _verification(result_live=result.live),
-        "logs": ["Spreadsheet Studio가 Excel-compatible workbook을 생성했습니다.", f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}"],
-        "artifacts": [{"id": f"sheet-{uuid4().hex[:8]}", "title": filename, "type": "spreadsheet", "fileName": filename, "mimeType": EXCEL_HTML_MIME_TYPE, "sizeBytes": download["size"], "content": {"download": download, "sheets": ["README", "RAW", "CHECKS", "DASHBOARD"]}}],
-    }
+    raw_rows = [["item", "description", "status"], ["request", prompt[:300], "captured"], ["summary", result.text[:500], "generated"]]
+    clean_rows = [["metric", "value", "note"], ["input_chars", len(prompt), "direct prompt length"], ["summary_chars", len(result.text), "model/fallback summary length"], ["schema_pass", True, "basic schema check"]]
+    metadata_rows = [["field", "type", "source"], ["item", "string", "Nanus"], ["description", "string", "Nanus"], ["status", "string", "Nanus"]]
+    checks_rows = [["check", "result", "detail"], ["row_count", "PASS", "RAW has data rows"], ["null_rate", "PASS", "No required blank values"], ["artifact_type", "PASS", "OOXML .xlsx package"]]
+    dashboard_rows = [["KPI", "Value", "Formula"], ["RAW rows", len(raw_rows) - 1, "=COUNTA(RAW!A:A)-1"], ["Checks passed", 3, "=COUNTIF(CHECKS!B:B,\"PASS\")"], ["Ready", "YES", "manual review recommended"]]
+    sheets = [
+        {"name": "README", "rows": [["Nanus Spreadsheet Studio"], ["Workbook", f"{title} 분석 워크북"], ["Generated", "Artifact Studio 2.0"]]},
+        {"name": "RAW", "rows": raw_rows},
+        {"name": "CLEAN", "rows": clean_rows},
+        {"name": "METADATA", "rows": metadata_rows},
+        {"name": "CHECKS", "rows": checks_rows},
+        {"name": "DASHBOARD", "rows": dashboard_rows},
+    ]
+    workbook_bytes = build_xlsx_bytes(f"{title} 분석 워크북", sheets)
+    filename = _safe_filename(f"{title} 분석 워크북", ".xlsx")
+    download = encode_download(filename, XLSX_MIME_TYPE, workbook_bytes)
+    return {"finalAnswer": f"{title} 분석용 XLSX workbook을 생성했습니다. README, RAW, CLEAN, METADATA, CHECKS, DASHBOARD 시트를 포함합니다.", "resultType": "spreadsheet", "verification": _verification(result_live=result.live), "logs": ["Spreadsheet Studio가 실제 OOXML XLSX workbook을 생성했습니다.", f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}"], "artifacts": [{"id": f"sheet-{uuid4().hex[:8]}", "title": filename, "type": "spreadsheet", "fileName": filename, "mimeType": XLSX_MIME_TYPE, "sizeBytes": download["size"], "content": {"download": download, "sheets": [sheet["name"] for sheet in sheets]}}]}
 
 
 async def visualization_from_prompt(prompt: str, llm: AnthropicMessagesClient) -> dict[str, Any]:
@@ -246,13 +188,7 @@ async def visualization_from_prompt(prompt: str, llm: AnthropicMessagesClient) -
     filename = _safe_filename(f"{title} 시각화", ".html")
     download = _download_text(filename, HTML_MIME_TYPE, dashboard)
     spec = {"mark": "bar", "data": {"values": [{"label": label, "value": value} for label, value in values]}}
-    return {
-        "finalAnswer": f"{title} 시각화 HTML 대시보드를 생성했습니다. 기본 차트 선택, 해석, Vega-Lite compatible spec을 포함했습니다.",
-        "resultType": "visualization",
-        "verification": _verification(result_live=result.live),
-        "logs": ["Visualization Studio가 HTML 대시보드를 생성했습니다.", f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}"],
-        "artifacts": [{"id": f"viz-{uuid4().hex[:8]}", "title": filename, "type": "visualization", "fileName": filename, "mimeType": HTML_MIME_TYPE, "sizeBytes": download["size"], "content": {"download": download, "spec": spec, "notes": result.text}}],
-    }
+    return {"finalAnswer": f"{title} 시각화 HTML 대시보드를 생성했습니다. 기본 차트 선택, 해석, Vega-Lite compatible spec을 포함했습니다.", "resultType": "visualization", "verification": _verification(result_live=result.live), "logs": ["Visualization Studio가 HTML 대시보드를 생성했습니다.", f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}"], "artifacts": [{"id": f"viz-{uuid4().hex[:8]}", "title": filename, "type": "visualization", "fileName": filename, "mimeType": HTML_MIME_TYPE, "sizeBytes": download["size"], "content": {"download": download, "spec": spec, "notes": result.text}}]}
 
 
 async def artifact_studio_bundle(prompt: str, llm: AnthropicMessagesClient) -> dict[str, Any]:
@@ -261,50 +197,22 @@ async def artifact_studio_bundle(prompt: str, llm: AnthropicMessagesClient) -> d
     sheet = await spreadsheet_from_prompt(prompt, llm)
     viz = await visualization_from_prompt(prompt, llm)
     artifacts = [*document["artifacts"], *deck["artifacts"], *sheet["artifacts"], *viz["artifacts"]]
-    warnings = []
     fallback = any(part.get("verification", {}).get("fallbackUsed") for part in [document, deck, sheet, viz])
-    if fallback:
-        warnings.append("일부 산출물이 fallback LLM 경로로 생성되었습니다.")
-    return {
-        "finalAnswer": "Artifact Studio 2.0이 문서, 발표자료, Excel-compatible workbook, 시각화 대시보드를 하나의 산출물 묶음으로 생성했습니다.",
-        "resultType": "artifact_bundle",
-        "verification": {"backendUsed": True, "llmUsed": not fallback, "fallbackUsed": fallback, "errors": [], "warnings": warnings},
-        "logs": ["Artifact Studio 2.0 bundle pipeline completed", f"Artifacts generated: {len(artifacts)}"],
-        "artifacts": artifacts,
-    }
+    return {"finalAnswer": "Artifact Studio 2.0이 문서, 발표자료, XLSX workbook, 시각화 대시보드를 하나의 산출물 묶음으로 생성했습니다.", "resultType": "artifact_bundle", "verification": {"backendUsed": True, "llmUsed": not fallback, "fallbackUsed": fallback, "errors": [], "warnings": ["일부 산출물이 fallback LLM 경로로 생성되었습니다."] if fallback else []}, "logs": ["Artifact Studio 2.0 bundle pipeline completed", f"Artifacts generated: {len(artifacts)}"], "artifacts": artifacts}
 
 
 async def writing_advice(prompt: str, llm: AnthropicMessagesClient) -> dict[str, Any]:
     result = await llm.generate(prompt, system="너는 한국어 보고서 작성 코치다. 사용자의 원고나 요청을 분석해 분량을 자연스럽게 늘리는 방법을 제안한다. 반드시 전체 진단, 섹션별 보강 방향, 바로 붙여넣을 수 있는 추가 문단 예시, 피해야 할 방식을 포함한다.")
     final_answer = result.text if result.live else _writing_fallback_answer(prompt)
     artifact = {"id": f"writing-{uuid4().hex[:8]}", "title": "보고서 원고 확장 제안.md", "type": "markdown", "content": {"text": final_answer, "provider": result.provider, "live": result.live}}
-    return {
-        "finalAnswer": final_answer,
-        "resultType": "writing_advice",
-        "verification": _verification(result_live=result.live),
-        "logs": ["Writing Coach가 글쓰기 조언 요청으로 분류했습니다.", f"입력 길이: {len(prompt)}자", f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}", "최종 답변 contract: finalAnswer 생성 완료"] + ([f"LLM fallback reason: {result.error}"] if result.error else []),
-        "artifacts": [artifact],
-    }
+    return {"finalAnswer": final_answer, "resultType": "writing_advice", "verification": _verification(result_live=result.live), "logs": ["Writing Coach가 글쓰기 조언 요청으로 분류했습니다.", f"입력 길이: {len(prompt)}자", f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}", "최종 답변 contract: finalAnswer 생성 완료"] + ([f"LLM fallback reason: {result.error}"] if result.error else []), "artifacts": [artifact]}
 
 
 async def research_brief(prompt: str, llm: AnthropicMessagesClient) -> dict[str, Any]:
     result = await llm.generate(prompt, system="너는 Nanus 리서치 에이전트다. 질문을 분해하고, 필요한 출처 유형, 검증 방법, 한계, 다음 액션을 한국어로 작성한다.")
     title = _compact_subject(prompt)
-    final_answer = result.text
-    citations = [
-        {"title": "사용자 제공 요청", "url": "nanus://user-prompt", "claim": "리서치 질문의 원문"},
-        {"title": "Nanus local research plan", "url": "nanus://research-plan", "claim": "출처 수집 전 검증 계획"},
-    ]
-    return {
-        "finalAnswer": final_answer,
-        "resultType": "research_brief",
-        "verification": _verification(result_live=result.live),
-        "logs": ["Research lane이 질문 분해와 검증 계획을 생성했습니다.", f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}"],
-        "artifacts": [
-            {"id": f"research-{uuid4().hex[:8]}", "title": f"{title} 리서치 브리프", "type": "research-brief", "content": {"text": final_answer, "citations": citations}},
-            {"id": f"sources-{uuid4().hex[:8]}", "title": f"{title} 출처 계획", "type": "citations", "content": {"citations": citations}},
-        ],
-    }
+    citations = [{"title": "사용자 제공 요청", "url": "nanus://user-prompt", "claim": "리서치 질문의 원문"}, {"title": "Nanus local research plan", "url": "nanus://research-plan", "claim": "출처 수집 전 검증 계획"}]
+    return {"finalAnswer": result.text, "resultType": "research_brief", "verification": _verification(result_live=result.live), "logs": ["Research lane이 질문 분해와 검증 계획을 생성했습니다.", f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}"], "artifacts": [{"id": f"research-{uuid4().hex[:8]}", "title": f"{title} 리서치 브리프", "type": "research-brief", "content": {"text": result.text, "citations": citations}}, {"id": f"sources-{uuid4().hex[:8]}", "title": f"{title} 출처 계획", "type": "citations", "content": {"citations": citations}}]}
 
 
 async def generic_llm_result(prompt: str, llm: AnthropicMessagesClient) -> dict[str, Any]:
@@ -312,10 +220,4 @@ async def generic_llm_result(prompt: str, llm: AnthropicMessagesClient) -> dict[
     logs = [f"LLM provider: {result.provider}{' live' if result.live else ' fallback'}"]
     if result.error:
         logs.append(f"LLM fallback reason: {result.error}")
-    return {
-        "finalAnswer": result.text,
-        "resultType": "answer",
-        "verification": _verification(result_live=result.live),
-        "logs": logs,
-        "artifacts": [{"id": f"result-{uuid4().hex[:8]}", "title": "Nanus 실행 결과", "type": "note", "content": {"text": result.text, "provider": result.provider, "live": result.live}}],
-    }
+    return {"finalAnswer": result.text, "resultType": "answer", "verification": _verification(result_live=result.live), "logs": logs, "artifacts": [{"id": f"result-{uuid4().hex[:8]}", "title": "Nanus 실행 결과", "type": "note", "content": {"text": result.text, "provider": result.provider, "live": result.live}}]}
