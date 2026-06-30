@@ -87,7 +87,7 @@ function buildArtifacts(kind: RunKind, title: string): ActiveRun["artifacts"] {
     deck: [{ id: "outline", title: `${title} 목차`, type: "outline" }, { id: "pptx", title: `${title} 초안.pptx`, type: "pptx" }],
     writing: [{ id: "writing-advice", title: "보고서 원고 확장 제안.md", type: "markdown" }],
     document: [{ id: "document", title: `${title} 문서 초안.md`, type: "markdown" }],
-    spreadsheet: [{ id: "workbook", title: `${title} 분석 워크북.xls`, type: "spreadsheet" }],
+    spreadsheet: [{ id: "workbook", title: `${title} 분석 워크북.xlsx`, type: "spreadsheet" }],
     visualization: [{ id: "dashboard", title: `${title} 시각화.html`, type: "visualization" }],
     site: [{ id: "wireframe", title: `${title} 페이지 구조`, type: "wireframe" }, { id: "preview", title: `${title} 미리보기`, type: "web" }],
     app: [{ id: "tasks", title: `${title} 구현 태스크`, type: "task-list" }, { id: "checks", title: `${title} 검증 체크`, type: "test-plan" }],
