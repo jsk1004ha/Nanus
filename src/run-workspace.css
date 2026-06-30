@@ -1,0 +1,348 @@
+.active-run-workspace {
+  display: grid;
+  gap: 12px;
+  width: min(100%, 740px);
+  margin-top: 16px;
+}
+
+.user-run-bubble {
+  justify-self: end;
+  display: grid;
+  gap: 5px;
+  max-width: min(82%, 520px);
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px 16px 5px 16px;
+  background: var(--surface-2);
+}
+
+.user-run-bubble span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.user-run-bubble p {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 690;
+  line-height: 1.45;
+}
+
+.agent-run-card {
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 3%, transparent);
+}
+
+.agent-run-header,
+.active-run-actions {
+  display: flex;
+  align-items: center;
+}
+
+.agent-run-header {
+  gap: 10px;
+}
+
+.agent-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
+  font-weight: 860;
+  overflow: hidden;
+}
+
+.agent-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.agent-run-header strong,
+.agent-run-header small {
+  display: block;
+}
+
+.agent-run-header strong {
+  font-size: 14px;
+  font-weight: 820;
+}
+
+.agent-run-header small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.run-badge {
+  margin-left: auto;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.run-badge.running {
+  border-color: color-mix(in srgb, var(--primary) 48%, var(--line));
+  color: var(--primary);
+}
+
+.run-badge.complete {
+  border-color: color-mix(in srgb, var(--success) 48%, var(--line));
+  color: var(--success);
+}
+
+.run-badge.paused {
+  border-color: color-mix(in srgb, var(--warning) 48%, var(--line));
+  color: var(--warning);
+}
+
+.agent-run-copy {
+  margin-top: 12px;
+}
+
+.agent-run-copy h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 780;
+  line-height: 1.25;
+}
+
+.agent-run-copy p {
+  margin: 7px 0 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.agent-run-metrics {
+  display: grid;
+  grid-template-columns: 1.4fr 0.8fr 0.8fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.agent-run-metrics span {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.agent-run-metrics strong,
+.agent-run-metrics small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-run-metrics strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.agent-run-metrics small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.agent-runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.agent-runtime-grid span {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-2) 82%, transparent);
+}
+
+.agent-runtime-grid small,
+.agent-runtime-grid strong,
+.agent-runtime-grid em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-runtime-grid small {
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 820;
+}
+
+.agent-runtime-grid strong {
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.agent-runtime-grid em {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.active-run-progress {
+  margin: 12px 0 0;
+  background: var(--surface-2);
+}
+
+.active-run-timeline {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+}
+
+.active-run-timeline li {
+  grid-template-columns: 14px minmax(0, 1fr);
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.active-run-log {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 11px;
+  border-radius: var(--radius-md);
+  background: var(--bg-strong);
+}
+
+.active-run-log span {
+  color: var(--text-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.active-run-log span::before {
+  content: "> ";
+  color: var(--primary);
+}
+
+.active-run-artifacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.active-run-artifacts button {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+}
+
+.active-run-artifacts button:hover,
+.active-run-actions button:hover {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.active-run-artifacts span {
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.active-run-artifacts strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.active-run-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.active-run-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.active-run-actions button.secondary {
+  background: transparent;
+}
+
+.active-run-actions svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+}
+
+@media (max-width: 620px) {
+  .active-run-workspace {
+    margin-top: 12px;
+  }
+
+  .user-run-bubble {
+    max-width: 100%;
+  }
+
+  .agent-run-card {
+    padding: 12px;
+  }
+
+  .agent-run-metrics,
+  .agent-runtime-grid,
+  .active-run-timeline,
+  .active-run-artifacts {
+    grid-template-columns: 1fr;
+  }
+
+  .active-run-actions button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}

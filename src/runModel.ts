@@ -36,7 +36,17 @@ function splitCommand(input: string) {
 
 function detectRunKind(command: string, prompt: string): RunKind {
   const haystack = `${command} ${prompt}`.toLowerCase();
-  if (haystack.includes("deck") || haystack.includes("ppt") || haystack.includes("발표") || haystack.includes("슬라이드")) return "deck";
+  if (
+    haystack.includes("artifact-studio") ||
+    haystack.includes("deck") ||
+    haystack.includes("ppt") ||
+    haystack.includes("pdf") ||
+    haystack.includes("hwpx") ||
+    haystack.includes("발표") ||
+    haystack.includes("슬라이드") ||
+    haystack.includes("문서")
+  )
+    return "deck";
   if (haystack.includes("site") || haystack.includes("web") || haystack.includes("웹사이트")) return "site";
   if (haystack.includes("app") || haystack.includes("desktop") || haystack.includes("앱")) return "app";
   if (haystack.includes("design") || haystack.includes("디자인")) return "design";

@@ -9,7 +9,13 @@
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "perf:budget": "node scripts/perf-budget.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "npm run build && npm run test:e2e:run",
+    "test:e2e:run": "playwright test",
+    "backend:dev": "node scripts/backend.mjs dev",
+    "backend:test": "node scripts/backend.mjs test",
+    "backend:setup": "node scripts/backend.mjs setup",
+    "backend:test:pytest": "node scripts/backend.mjs pytest",
+    "dev:full": "node scripts/dev-full.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.469.0",

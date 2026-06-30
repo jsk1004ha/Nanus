@@ -1,0 +1,263 @@
+.artifact-viewer {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.artifact-viewer-header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.artifact-viewer-header strong,
+.artifact-card-preview strong,
+.artifact-empty strong {
+  display: block;
+  color: var(--text);
+}
+
+.artifact-card-list {
+  display: grid;
+  gap: 8px;
+}
+
+.artifact-card-preview {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.artifact-card-preview header {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+}
+
+.artifact-type-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 15%, transparent);
+  color: var(--primary);
+}
+
+.artifact-type-icon svg,
+.artifact-download svg,
+.artifact-checklist svg {
+  width: 16px;
+  height: 16px;
+}
+
+.artifact-card-preview small,
+.artifact-empty span,
+.artifact-copy,
+.citation-row span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.artifact-download {
+  display: inline-flex;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--text);
+  color: var(--bg-strong);
+  font-size: 12px;
+  font-weight: 840;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.artifact-download span {
+  color: inherit;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.artifact-download:disabled {
+  cursor: not-allowed;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.slide-preview-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.slide-preview-list li {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.slide-preview-list li > span {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 880;
+}
+
+.artifact-checklist,
+.citation-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.artifact-checklist span,
+.citation-row span {
+  display: inline-flex;
+  gap: 5px;
+  min-height: 25px;
+  padding: 5px 8px;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.artifact-checklist svg {
+  color: var(--success);
+}
+
+.artifact-empty {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.artifact-graph {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.artifact-graph span {
+  display: inline-flex;
+  gap: 7px;
+  min-height: 30px;
+  padding: 6px 9px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.artifact-graph em {
+  color: var(--primary);
+  font-style: normal;
+}
+
+.artifact-copy {
+  margin: 0;
+  max-height: 110px;
+  overflow: auto;
+}
+
+.lane-chart {
+  display: grid;
+  gap: 8px;
+}
+
+.lane-chart-row {
+  display: grid;
+  grid-template-columns: minmax(82px, 0.95fr) minmax(82px, 1.1fr) 42px 58px;
+  gap: 8px;
+  align-items: center;
+  min-height: 36px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.lane-chart-row span,
+.lane-chart-row strong,
+.lane-chart-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lane-chart-row span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.lane-chart-track {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+
+.lane-chart-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary), var(--success));
+}
+
+.lane-chart-row strong {
+  color: var(--text);
+  font-size: 12px;
+  text-align: right;
+}
+
+.lane-chart-row small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 720px) {
+  .artifact-card-preview header,
+  .lane-chart-row {
+    grid-template-columns: 1fr;
+  }
+
+  .artifact-viewer-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .artifact-download {
+    width: 100%;
+  }
+
+  .lane-chart-row strong {
+    text-align: left;
+  }
+}

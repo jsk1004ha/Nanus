@@ -55,4 +55,4 @@ function assertBudget() {
 runScript("typecheck");
 runScript("build");
 assertBudget();
-runScript("test:e2e");
+runScript("test:e2e:run");

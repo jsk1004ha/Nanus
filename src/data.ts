@@ -17,7 +17,7 @@ import {
   SquareTerminal,
   WandSparkles,
 } from "lucide-react";
-import type { NavItem, QuickAction, Recommendation, RunLedger, SkillPackage, TaskItem } from "./types";
+import type { NavItem, QuickAction, Recommendation, SkillPackage, TaskItem } from "./types";
 
 export const navItems: NavItem[] = [
   { id: "home", label: "새 작업", icon: SquarePen },
@@ -125,17 +125,6 @@ export const quickActions: QuickAction[] = [
   { id: "design", label: "디자인", command: "/design-system 디자인 시스템 정리", icon: WandSparkles },
   { id: "research", label: "조사", command: "/research-brief 근거", icon: ChartNoAxesCombined },
 ];
-
-export const runLedger: RunLedger = {
-  title: "12장짜리 PPT 제작",
-  status: "계획 수립 중",
-  worker: "Codex + Artifact Studio",
-  steps: [
-    { id: "resolve", title: "스킬 해석", detail: "/deck-from-brief · v0.3.2", state: "done" },
-    { id: "structure", title: "자료 구조화", detail: "Docling · citation QA", state: "active" },
-    { id: "render", title: "슬라이드 렌더링", detail: "Presenton · PPTX export", state: "pending" },
-  ],
-};
 
 export const agents = [
   {

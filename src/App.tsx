@@ -1,15 +1,13 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
   Activity,
   AlertCircle,
   ArrowUp,
-  AudioLines,
   Bell,
   BellRing,
   ChevronDown,
   CircleCheck,
   CornerDownLeft,
-  Database,
   FolderOpen,
   FolderPlus,
   ListFilter,
@@ -24,7 +22,6 @@ import {
   Search,
   Settings,
   ShieldCheck,
-  Sparkle,
   Sparkles,
   Sun,
   Workflow,
@@ -54,6 +51,7 @@ interface ProjectItem {
 }
 
 const Panels = lazy(() => import("./Panels"));
+const RunWorkspace = lazy(() => import("./RunWorkspace"));
 
 const miniCommandLabels: Record<string, string> = {
   "deck-from-brief": "/deck",
@@ -73,9 +71,9 @@ const viewCopy: Record<ViewId, { eyebrow: string; title: string; placeholder: st
     placeholder: "예: Planner와 Codex Lane으로 문서 자동화 파이프라인을 구성해줘",
   },
   workbench: {
-    eyebrow: "Work Bench",
+    eyebrow: "Workbench",
     title: "작업 선택",
-    placeholder: "코드/디자인/조사",
+    placeholder: "코드/디자인/문서",
   },
   skills: {
     eyebrow: "Skill Hub",
@@ -157,7 +155,7 @@ function Sidebar({
       <header className="brand-row">
         <button className="brand-lockup" type="button" aria-label="홈으로 이동" onClick={() => onSelectView("home")}>
           <span className="brand-mark" aria-hidden="true">
-            N
+            <img src="/nanus-icon.png" alt="" />
           </span>
           <span className="brand-name">nanus</span>
         </button>
@@ -242,7 +240,7 @@ function Sidebar({
         <div className="notify-card">
           <div>
             <BellRing />
-            <span>{notificationStatus === "unknown" ? "작업 완료 시 브라우저 알림을 켜세요." : "브라우저 알림이 꺼져 있습니다."}</span>
+            <span>{notificationStatus === "unknown" ? "브라우저 알림을 켜세요." : "알림이 꺼져 있습니다."}</span>
           </div>
           <div className="notify-actions">
             <button type="button" onClick={() => onNotificationChoice(false)}>
@@ -278,6 +276,8 @@ function MainStage({
   composerError,
   suggestions,
   suggestionsVisible,
+  activeRun,
+  runPaused,
   mode,
   theme,
   onComposerChange,
@@ -290,12 +290,16 @@ function MainStage({
   onSetMode,
   onToggleTheme,
   onToggleSidebar,
+  onTogglePause,
+  onRunChange,
 }: {
   activeView: ViewId;
   composer: string;
   composerError: string;
   suggestions: Recommendation[];
   suggestionsVisible: boolean;
+  activeRun: ActiveRun | null;
+  runPaused: boolean;
   mode: WorkspaceMode;
   theme: ThemeMode;
   onComposerChange: (value: string) => void;
@@ -308,6 +312,8 @@ function MainStage({
   onSetMode: (mode: WorkspaceMode) => void;
   onToggleTheme: () => void;
   onToggleSidebar: () => void;
+  onTogglePause: () => void;
+  onRunChange: Dispatch<SetStateAction<ActiveRun | null>>;
 }) {
   const copy = viewCopy[activeView];
 
@@ -319,7 +325,7 @@ function MainStage({
             <PanelLeft />
           </IconButton>
           <button className="workspace-switch" type="button" onClick={onOpenPalette}>
-            <span>Nanus 0.1 Control</span>
+            <span>Nanus Control</span>
             <ChevronDown />
           </button>
         </div>
@@ -331,7 +337,7 @@ function MainStage({
             <Settings />
           </IconButton>
           <button className="credit-pill" type="button" onClick={() => onOpenPanel("billing")}>
-            <Sparkle />
+            <Sparkles />
             <span>1,207</span>
           </button>
         </div>
@@ -344,7 +350,7 @@ function MainStage({
             로컬 실행
           </button>
           <button type="button" className={mode === "private" ? "active" : undefined} onClick={() => onSetMode("private")}>
-            프라이빗 스택 시작
+            프라이빗
           </button>
         </div>
 
@@ -363,6 +369,12 @@ function MainStage({
               aria-invalid={Boolean(composerError)}
               aria-describedby={composerError ? "composer-error" : undefined}
               onChange={(event) => onComposerChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  onStartRun();
+                }
+              }}
             />
             {composerError ? (
               <p id="composer-error" className="field-error" role="alert">
@@ -384,7 +396,7 @@ function MainStage({
               </div>
               <div className="right-tools">
                 <button className="ghost-tool" type="button" aria-label="음성 입력 준비" title="음성 입력 준비" onClick={() => onOpenPanel("connections")}>
-                  <AudioLines />
+                  <Mic />
                 </button>
                 <button className="ghost-tool" type="button" aria-label="마이크 권한" title="마이크 권한" onClick={() => onOpenPanel("notifications")}>
                   <Mic />
@@ -432,6 +444,12 @@ function MainStage({
           )}
         </div>
 
+        {activeRun ? (
+          <Suspense fallback={null}>
+            <RunWorkspace run={activeRun} paused={runPaused} onOpenPanel={onOpenPanel} onTogglePause={onTogglePause} onRunChange={onRunChange} />
+          </Suspense>
+        ) : null}
+
         <section className="quick-actions" aria-label="빠른 작업">
           {quickActions.map((action) => {
             const Icon = action.icon;
@@ -464,7 +482,7 @@ function MainStage({
             </span>
           </button>
           <button type="button" onClick={() => onOpenPanel("library")}>
-            <Database />
+            <FolderOpen />
             <span>
               <strong>산출물 보관함</strong>
               <small>PPT, HWPX, 웹 요약본 관리</small>
@@ -568,6 +586,8 @@ export function App() {
   const [projectError, setProjectError] = useState("");
   const [activeRun, setActiveRun] = useState<ActiveRun | null>(null);
   const [runPaused, setRunPaused] = useState(false);
+  const runStreamCleanup = useRef<(() => void) | null>(null);
+  const runLaunchCount = useRef(0);
 
   const visibleSuggestions = useMemo(() => {
     return recommendations.map((_, index) => recommendations[(index + suggestionOffset) % recommendations.length]);
@@ -586,6 +606,37 @@ export function App() {
     const timeout = window.setTimeout(() => setToast(null), 4200);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    return () => {
+      runStreamCleanup.current?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const shouldRestoreBackend =
+      import.meta.env.VITE_NANUS_RESTORE_BACKEND === "true" || Boolean(import.meta.env.VITE_NANUS_API_BASE);
+    if (!shouldRestoreBackend) return undefined;
+
+    let cancelled = false;
+    const restoreToken = runLaunchCount.current;
+    void import("./runApi")
+      .then(({ restoreLatestBackendRun }) =>
+        restoreLatestBackendRun((run) => {
+          if (!cancelled && runLaunchCount.current === restoreToken) setActiveRun(run);
+        }),
+      )
+      .then((cleanup) => {
+        if (cancelled || runLaunchCount.current !== restoreToken) cleanup?.();
+        else if (cleanup) runStreamCleanup.current = cleanup;
+      })
+      .catch(() => {
+        // Backend is optional during static preview; local fallback remains active.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -645,40 +696,58 @@ export function App() {
     }
   }
 
+  async function beginRun(input: string) {
+    runLaunchCount.current += 1;
+    const launchToken = runLaunchCount.current;
+    const launchMode = mode;
+    runStreamCleanup.current?.();
+    runStreamCleanup.current = null;
+
+    const localRun: ActiveRun = { ...createRun(input), source: "local" };
+    setActiveRun(localRun);
+    setRunPaused(false);
+    setPanel("none");
+    setMobileSidebarOpen(false);
+    notify("실행 시작", `${launchMode === "local" ? "로컬" : "프라이빗"} · ${localRun.title}`, "success");
+
+    void import("./runApi").then(({ connectBackendRun }) =>
+      connectBackendRun(input, launchMode, localRun, (run) => {
+        if (runLaunchCount.current === launchToken) setActiveRun(run);
+      }).then((cleanup) => {
+        if (runLaunchCount.current !== launchToken) cleanup?.();
+        else runStreamCleanup.current = cleanup;
+      }),
+    ).catch((error: unknown) => {
+      if (runLaunchCount.current === launchToken) {
+        const detail = error instanceof Error ? error.message : "unknown";
+        setActiveRun({ ...localRun, log: [...localRun.log, `백엔드 모듈 로드 실패: ${detail}`] });
+      }
+    });
+  }
+
   function startRun() {
     const trimmed = composer.trim();
     if (!trimmed) {
-      setComposerError("실행할 작업을 입력하거나 추천 항목을 선택하세요.");
-      notify("작업 설명 필요", "추천 항목이나 빠른 작업을 누르면 바로 실행 초안을 만들 수 있습니다.", "warning");
+      setComposerError("실행할 작업을 입력하세요.");
+      notify("작업 설명 필요", "추천 항목을 선택할 수 있습니다.", "warning");
       return;
     }
-    const nextRun = createRun(trimmed);
-    setActiveRun(nextRun);
-    setRunPaused(false);
-    setPanel("run");
-    setMobileSidebarOpen(false);
-    notify("실행 시작", `${mode === "local" ? "로컬" : "프라이빗"} 모드로 '${nextRun.title}' 작업을 시작했습니다.`, "success");
+    void beginRun(trimmed);
   }
 
   function runTemplate(value: string) {
-    const nextRun = createRun(value);
     setComposer(value);
     setComposerError("");
     setSuggestionsVisible(true);
     setPaletteOpen(false);
     setPaletteQuery("");
-    setActiveRun(nextRun);
-    setRunPaused(false);
-    setPanel("run");
-    setMobileSidebarOpen(false);
-    notify("실행 시작", `${mode === "local" ? "로컬" : "프라이빗"} 모드로 '${nextRun.title}' 작업을 시작했습니다.`, "success");
+    void beginRun(value);
   }
 
   function selectTask(taskTitle: string) {
     const template = `/deck-from-brief ${taskTitle}`;
     applyTemplate(template);
-    setActiveRun(createRun(template));
-    setPanel("run");
+    void beginRun(template);
   }
 
   function createProject() {
@@ -691,12 +760,22 @@ export function App() {
     setProjectDraft("");
     setProjectError("");
     setPanel("none");
-    notify("프로젝트 생성됨", `${name} 프로젝트가 사이드바에 추가됐습니다.`, "success");
+      notify("프로젝트 생성됨", `${name} 추가됨`, "success");
   }
 
   function handleNotificationChoice(enabled: boolean) {
     setNotificationStatus(enabled ? "on" : "off");
-    notify(enabled ? "알림 켜짐" : "알림 꺼짐", enabled ? "작업 완료와 승인 요청을 알려드립니다." : "나중에 알림 패널에서 다시 켤 수 있습니다.", enabled ? "success" : "default");
+    notify(enabled ? "알림 켜짐" : "알림 꺼짐", enabled ? "완료/승인 요청 알림" : "나중에 다시 켤 수 있습니다.", enabled ? "success" : "default");
+  }
+
+  function toggleRunPause() {
+    if (!activeRun || activeRun.status !== "running") {
+      notify("일시정지 불가", activeRun?.status === "complete" ? "완료된 런입니다." : "실행 중인 작업이 없습니다.", "warning");
+      return;
+    }
+    const nextPaused = !runPaused;
+    setRunPaused(nextPaused);
+    notify(nextPaused ? "실행 일시정지" : "실행 재개", nextPaused ? "현재 단계 대기" : "타임라인 재개", "success");
   }
 
   function runCommand(value: string) {
@@ -735,6 +814,8 @@ export function App() {
         composerError={composerError}
         suggestions={visibleSuggestions}
         suggestionsVisible={suggestionsVisible}
+        activeRun={activeRun}
+        runPaused={runPaused}
         mode={mode}
         theme={theme}
         onComposerChange={updateComposer}
@@ -749,9 +830,11 @@ export function App() {
         }}
         onSetMode={(nextMode) => {
           setMode(nextMode);
-          notify("실행 모드 변경", nextMode === "local" ? "로컬 샌드박스를 우선 사용합니다." : "프라이빗 클라우드 실행을 우선 사용합니다.", "success");
+          notify("실행 모드 변경", nextMode === "local" ? "로컬 우선" : "프라이빗 우선", "success");
         }}
         onToggleTheme={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
+        onTogglePause={toggleRunPause}
+        onRunChange={setActiveRun}
         onToggleSidebar={() => {
           if (window.matchMedia("(max-width: 980px)").matches) setMobileSidebarOpen((open) => !open);
           else setSidebarCollapsed((collapsed) => !collapsed);
@@ -777,13 +860,16 @@ export function App() {
             onSelectSkill={selectSkill}
             onSelectTab={setSkillTab}
             onStartRun={startRun}
-            onImportSkill={() => notify("스킬 가져오기 준비", "Manus SKILL.md 패키지나 GitHub URL을 받는 연결 지점입니다.", "default")}
-            onTogglePause={() => {
-              setRunPaused((paused) => !paused);
-              notify(runPaused ? "실행 재개" : "실행 일시정지", runPaused ? "런 타임라인이 다시 진행됩니다." : "현재 단계에서 대기합니다.", "success");
+            onImportSkill={() => notify("스킬 가져오기 준비", "SKILL.md/GitHub URL 연결", "default")}
+            onTogglePause={toggleRunPause}
+            onCopyLog={() => notify("로그 복사됨", activeRun ? `${activeRun.title} 로그 ${activeRun.log.length}줄` : "실행 후 복사 가능", "success")}
+            onRestoreRun={(run) => {
+              runStreamCleanup.current?.();
+              runStreamCleanup.current = null;
+              setRunPaused(false);
+              setActiveRun(run);
+              notify("저장된 실행 열림", `${run.title} 기록을 SQLite 백엔드에서 불러왔습니다.`, "success");
             }}
-            onCopyLog={() => notify("로그 복사됨", activeRun ? `${activeRun.title} 로그 ${activeRun.log.length}줄을 준비했습니다.` : "실행 후 로그를 복사할 수 있습니다.", "success")}
-            onExport={() => notify("산출물 내보내기", activeRun ? `${activeRun.artifacts.map((artifact) => artifact.type).join(", ")} 산출물을 준비했습니다.` : "실행 후 산출물을 내보낼 수 있습니다.", "success")}
             onTemplate={applyTemplate}
             onRunTemplate={runTemplate}
             onNotify={notify}

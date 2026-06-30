@@ -82,14 +82,32 @@ export interface RunStep {
   state: "done" | "active" | "pending";
 }
 
-export interface RunLedger {
-  title: string;
-  status: string;
-  worker: string;
-  steps: RunStep[];
+export type RunKind = "deck" | "site" | "app" | "design" | "research" | "schedule" | "library" | "agent" | "general";
+
+export interface ArtifactDownload {
+  filename?: string;
+  fileName?: string;
+  mimeType?: string;
+  size?: number;
+  sizeBytes?: number;
 }
 
-export type RunKind = "deck" | "site" | "app" | "design" | "research" | "schedule" | "library" | "agent" | "general";
+export interface ArtifactContent {
+  [key: string]: unknown;
+  download?: ArtifactDownload & { base64?: string };
+}
+
+export interface Artifact {
+  id: string;
+  title: string;
+  type: string;
+  content?: ArtifactContent;
+  createdAt?: string | number;
+  downloadUrl?: string;
+  fileName?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+}
 
 export interface ActiveRun {
   id: string;
@@ -102,12 +120,9 @@ export interface ActiveRun {
   progress: number;
   startedAt: string;
   steps: RunStep[];
-  artifacts: Array<{
-    id: string;
-    title: string;
-    type: string;
-  }>;
+  artifacts: Artifact[];
   log: string[];
+  source?: "local" | "backend";
 }
 
 export interface ProductivityPlan {

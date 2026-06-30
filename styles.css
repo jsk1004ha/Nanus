@@ -182,9 +182,14 @@ input:focus-visible {
   height: 27px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 780;
+  overflow: hidden;
+  background: var(--bg-strong);
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .brand-name {
@@ -1111,6 +1116,53 @@ h1 {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
+}
+
+.run-history-list {
+  display: grid;
+  gap: 7px;
+  margin: 10px 14px 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+.run-history-list > strong {
+  font-size: 12px;
+}
+
+.run-history-list > small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.run-history-list button {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+}
+
+.run-history-list button.active {
+  outline: 1px solid color-mix(in srgb, var(--primary) 55%, var(--line));
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+}
+
+.run-history-list button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.run-history-list button small {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .run-status span:last-child {
@@ -2228,3 +2280,38 @@ h1 {
     width: calc(100vw - 28px);
   }
 }
+
+.connection-banner {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 14px 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 32%, var(--line));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  color: var(--text);
+  font-size: 12px;
+}
+
+.connection-banner svg {
+  width: 16px;
+  height: 16px;
+  color: var(--warning);
+}
+
+.connection-status {
+  justify-self: end;
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+
+.connection-status.live { background: var(--success); }
+.connection-status.available { background: var(--warning); }
+.connection-status.fallback { background: var(--muted); }

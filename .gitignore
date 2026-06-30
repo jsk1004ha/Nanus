@@ -1,17 +1,43 @@
+# Dependencies
 node_modules/
+
+# Build and tool caches
 dist/
 .vite/
 *.tsbuildinfo
+coverage/
+
+# Test output
 test-results/
 playwright-report/
-.omx/logs/
-.omx/metrics.json
-.omx/state/hud-state.json
-.omx/state/notify-hook-state.json
-.omx/state/skill-active-state.json
-.omx/state/team-leader-nudge.json
-.omx/state/tmux-hook-state.json
-.omx/goals/
-.omx/state/productivity-engine/
-.omx/state/ultrawork.json
-.omx/ultragoal/
+
+# Local OMX runtime artifacts
+.omx/
+.codex-remote-attachments/
+
+# Python backend runtime
+.env
+.env.local
+.env.*.local
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.nanus/
+backend/data/*.sqlite3
+backend/data/*.sqlite3-*
+.env
+.env.*
+!.env.example
+
+# Local Playwright dependency extraction
+.playwright-deps/
+.playwright-libs/
+
+# Logs and OS noise
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db

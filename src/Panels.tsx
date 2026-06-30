@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   AlertCircle,
   BellRing,
@@ -27,10 +27,47 @@ import {
 } from "lucide-react";
 import { agents, libraryItems, quickActions, scheduledRuns, skills } from "./data";
 import { createProductivityPlan } from "./productivityModel";
-import { commandLabels, createRun } from "./runModel";
+import { createRun } from "./runModel";
+import { backendApiUrl, backendEnabled } from "./backendConfig";
+import { ArtifactViewer } from "./ArtifactViewer";
 import type { ActiveRun, DensityMode, PanelId, QuickAction, SkillPackage, SkillTab, ThemeMode, WorkspaceMode } from "./types";
 
 type NotifyTone = "default" | "success" | "warning";
+
+interface BackendToolConnection {
+  id: string;
+  name: string;
+  available?: boolean;
+  enabled?: boolean;
+  executable?: string | null;
+  cwd?: string;
+  sandbox?: string;
+  model?: string;
+  invocation?: string;
+}
+
+interface BackendTool {
+  id: string;
+  command: string;
+  name: string;
+  description: string;
+  runtime: string;
+  permissions: string[];
+  connection: BackendToolConnection;
+}
+
+function connectionLabel(connection?: BackendToolConnection) {
+  if (!connection) return "연결 정보 없음";
+  if (connection.enabled) return "Live";
+  if (connection.available) return "설치됨 · 비활성";
+  return "Fallback";
+}
+
+function connectionTone(connection?: BackendToolConnection) {
+  if (connection?.enabled) return "live";
+  if (connection?.available) return "available";
+  return "fallback";
+}
 
 function IconButton({
   label,
@@ -158,6 +195,7 @@ function RunInspector({
   onTogglePause,
   onCopyLog,
   onExport,
+  onRestoreRun,
 }: {
   open: boolean;
   run: ActiveRun | null;
@@ -166,9 +204,46 @@ function RunInspector({
   onTogglePause: () => void;
   onCopyLog: () => void;
   onExport: () => void;
+  onRestoreRun: (run: ActiveRun) => void;
 }) {
-  const status = paused ? "paused" : run?.status ?? "queued";
-  const activeRun = run ?? createRun("/run 새 작업을 입력하면 여기에서 실행 상태를 확인할 수 있습니다");
+  const [history, setHistory] = useState<ActiveRun[]>([]);
+  const [historyError, setHistoryError] = useState("");
+  const placeholderRun = createRun("/run 새 작업을 입력하면 여기에서 실행 상태를 확인할 수 있습니다");
+  const activeRun = run ?? {
+    ...placeholderRun,
+    status: "queued" as const,
+    progress: 0,
+    steps: placeholderRun.steps.map((step) => ({ ...step, state: "pending" as const })),
+    log: ["실행할 작업을 입력하면 로그가 여기에 표시됩니다."],
+  };
+  const canPause = Boolean(run && run.status === "running");
+  const status = canPause && paused ? "paused" : activeRun.status;
+  const statusLabel = status === "paused" ? "일시정지됨" : status === "complete" ? "완료됨" : status === "queued" ? "대기 중" : "실행 중";
+
+  useEffect(() => {
+    if (!open) return undefined;
+    if (!backendEnabled) {
+      setHistory([]);
+      setHistoryError("백엔드 기록은 npm run dev:full 또는 VITE_NANUS_API_BASE 설정 시 연결됩니다.");
+      return undefined;
+    }
+    let cancelled = false;
+    setHistoryError("");
+    fetch(backendApiUrl("/api/runs"))
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ runs: ActiveRun[] }>;
+      })
+      .then((payload) => {
+        if (!cancelled) setHistory((payload.runs ?? []).map((item) => ({ ...item, source: "backend" as const })));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setHistoryError(error instanceof Error ? error.message : "backend unavailable");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   return (
     <aside className={`run-panel${open ? " open" : ""}`} aria-label="Current run inspector">
@@ -182,9 +257,9 @@ function RunInspector({
         </IconButton>
       </div>
       <div className="run-actions">
-        <button type="button" onClick={onTogglePause}>
-          {paused ? <Play /> : <Pause />}
-          {paused ? "재개" : "일시정지"}
+        <button type="button" onClick={onTogglePause} disabled={!canPause}>
+          {paused && canPause ? <Play /> : <Pause />}
+          {paused && canPause ? "재개" : "일시정지"}
         </button>
         <button type="button" onClick={onCopyLog}>
           <Copy />
@@ -197,15 +272,38 @@ function RunInspector({
       </div>
       <div className="run-status">
         <span className={`status-dot ${status}`} />
-        <strong>{paused ? "일시정지됨" : activeRun.status === "complete" ? "완료됨" : "실행 중"}</strong>
+        <strong>{statusLabel}</strong>
         <span>{activeRun.worker}</span>
+        <span>{activeRun.source === "backend" ? "FastAPI/SQLite" : "브라우저 로컬"}</span>
       </div>
-      <div className="run-progress" aria-label="실행 진행률">
-        <span style={{ width: `${paused ? activeRun.progress : Math.max(activeRun.progress, 48)}%` }} />
+      <div
+        className="run-progress"
+        role="progressbar"
+        aria-label="실행 진행률"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={activeRun.progress}
+      >
+        <span className="sr-only" data-testid="inspector-progress-value">
+          {activeRun.progress}
+        </span>
+        <span style={{ width: `${activeRun.progress}%` }} />
       </div>
       <div className="run-meta">
         <span>{activeRun.command}</span>
         <span>{activeRun.startedAt}</span>
+      </div>
+      <div className="run-history-list" aria-label="Persisted run history">
+        <strong>저장된 실행 기록</strong>
+        {historyError ? <small>백엔드 기록 미연결: {historyError}</small> : null}
+        {history.slice(0, 4).map((item) => (
+          <button key={item.id} type="button" className={item.id === activeRun.id ? "active" : undefined} onClick={() => onRestoreRun({ ...item, source: "backend" })}>
+            <span>{item.title}</span>
+            <small>
+              {item.command} · {item.status} · {item.progress}%
+            </small>
+          </button>
+        ))}
       </div>
       <ol className="timeline">
         {activeRun.steps.map((step) => (
@@ -218,18 +316,7 @@ function RunInspector({
           </li>
         ))}
       </ol>
-      <div className="artifact-preview">
-        <div className={`slide-thumb ${activeRun.kind}`}>
-          <span>{activeRun.artifacts[0]?.type ?? "result"}</span>
-          <strong>{activeRun.artifacts[0]?.title ?? activeRun.title}</strong>
-          <small>{commandLabels[activeRun.kind]}</small>
-        </div>
-        <div className="preview-lines">
-          {activeRun.log.map((line) => (
-            <span key={line}>{line}</span>
-          ))}
-        </div>
-      </div>
+      <ArtifactViewer run={activeRun} />
     </aside>
   );
 }
@@ -279,27 +366,74 @@ function ContextPanel({
     },
   };
 
+  const [backendTools, setBackendTools] = useState<BackendTool[] | null>(null);
+  const [connectionError, setConnectionError] = useState<string>("");
+
+  useEffect(() => {
+    if (panel !== "connections" || !open) return undefined;
+    if (!backendEnabled) {
+      setBackendTools(null);
+      setConnectionError("백엔드 연결은 npm run dev:full 또는 VITE_NANUS_API_BASE 설정 시 활성화됩니다.");
+      return undefined;
+    }
+    let cancelled = false;
+    setConnectionError("");
+    fetch(backendApiUrl("/api/tools"))
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ tools: BackendTool[] }>;
+      })
+      .then((payload) => {
+        if (!cancelled) setBackendTools(payload.tools);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setBackendTools(null);
+          setConnectionError(error instanceof Error ? error.message : "backend unavailable");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, panel]);
+
   if (panel === "connections") {
     const connectionItems = [
-      { id: "codex", name: "Codex Workspace", detail: "현재 로컬 파일 시스템과 테스트 러너가 연결됨", icon: Terminal },
-      { id: "claude", name: "Claude Code Bridge", detail: "외부 코드 에이전트 연결 슬롯 준비", icon: Command },
-      { id: "browser", name: "Browser Session", detail: "Playwright 기반 화면 검증 가능", icon: Monitor },
+      { id: "codex-cli", name: "Codex Workspace", detail: "로컬 Codex CLI bridge · 코드 실행 어댑터", icon: Terminal },
+      { id: "anthropic-messages", name: "Anthropic Messages", detail: "ANTHROPIC_API_KEY 설정 시 실제 LLM 호출", icon: Command },
+      { id: "deck-from-brief", name: "Deck Skill", detail: "Python skill function · PPT outline/artifact 생성", icon: Workflow },
+      { id: "artifact-studio", name: "Artifact Studio", detail: "문서 파싱 · PPTX 다운로드 아티팩트 생성", icon: FileInput },
+      { id: "browser", name: "Browser Session", detail: "Playwright 기반 화면 검증 슬롯", icon: Monitor },
     ];
 
     return (
       <aside className={`detail-panel${open ? " open" : ""}`} aria-label="Connection panel">
         <PanelTitle eyebrow="Connections" title="연결된 작업 환경" onClose={onClose} />
+        {connectionError ? (
+          <div className="connection-banner">
+            <AlertCircle />
+            <span>백엔드 미연결 · Vite preview에서는 로컬 fallback으로 실행됩니다. ({connectionError})</span>
+          </div>
+        ) : null}
         <div className="context-list">
           {connectionItems.map((item) => {
             const Icon = item.icon;
+            const tool = backendTools?.find((candidate) => candidate.id === item.id);
+            const connection = tool?.connection;
+            const detail = tool ? `${tool.runtime} · ${tool.description}` : item.detail;
+            const status = connectionLabel(connection);
             return (
-              <button key={item.id} type="button" onClick={() => onNotify(item.name, item.detail, "success")}>
+              <button key={item.id} type="button" onClick={() => onNotify(item.name, detail, connection?.enabled || connection?.available ? "success" : "default")}>
                 <Icon />
                 <span>
-                  <strong>{item.name}</strong>
-                  <small>{item.detail}</small>
+                  <strong>{tool?.name ?? item.name}</strong>
+                  <small>{detail}</small>
+                  {connection?.sandbox ? <small>Sandbox: {connection.sandbox}</small> : null}
+                  {connection?.cwd ? <small>Workspace: {connection.cwd}</small> : null}
+                  {connection?.executable ? <small>{connection.executable}</small> : null}
+                  {connection?.invocation ? <small>{connection.invocation}</small> : null}
                 </span>
-                <ExternalLink />
+                <em className={`connection-status ${connectionTone(connection)}`}>{status}</em>
               </button>
             );
           })}
@@ -414,6 +548,16 @@ const workbenchModes = [
     outputs: ["리서치 브리프", "출처 목록", "한계와 후속 질문"],
     guardrail: "최신 정보와 직접 인용은 출처 확인 후 사용",
   },
+  {
+    id: "document",
+    title: "문서",
+    command: "/artifact-studio HWPX 계획서를 PPTX, PDF, 웹 요약본으로 변환해줘",
+    icon: FileInput,
+    detail: "HWPX/PDF/브리프를 구조화하고 슬라이드, 요약본, 다운로드 파일로 렌더링합니다.",
+    lanes: ["파싱", "구조화", "렌더", "QA"],
+    outputs: ["PPTX", "문서 요약", "웹 프리뷰"],
+    guardrail: "다운로드 파일과 화면 프리뷰가 같은 artifact 레코드에서 나오는지 확인",
+  },
 ] as const;
 
 function WorkbenchPanel({
@@ -431,7 +575,7 @@ function WorkbenchPanel({
 }) {
   return (
     <aside className={`detail-panel workbench-panel${open ? " open" : ""}`} aria-label="Workbench panel">
-      <PanelTitle eyebrow="Manus-style Workbench" title="코딩 · 디자인 · 리서치" onClose={onClose} />
+      <PanelTitle eyebrow="Manus-style Workbench" title="코딩 · 디자인 · 리서치 · 문서" onClose={onClose} />
       <div className="workbench-list">
         {workbenchModes.map((mode) => {
           const Icon = mode.icon;
@@ -499,6 +643,7 @@ function ProductivityPanel({
 }) {
   const plan = createProductivityPlan(run, draft, { skills, agents, scheduledRuns, libraryItems, mode, paused });
   const reduction = Math.round((plan.savedHours / plan.manualHours) * 100);
+  const laneMaxMinutes = Math.max(1, ...plan.lanes.map((lane) => lane.minutes));
 
   function savePlanToLedger() {
     try {
@@ -559,6 +704,22 @@ function ProductivityPanel({
             <li key={action}>{action}</li>
           ))}
         </ol>
+      </section>
+
+      <section className="productivity-section">
+        <h3>레인 시간 분포</h3>
+        <div className="lane-chart" aria-label="병렬 레인 시간 분포">
+          {plan.lanes.map((lane) => (
+            <div key={lane.id} className="lane-chart-row">
+              <span>{lane.title}</span>
+              <div className="lane-chart-track" aria-hidden="true">
+                <i style={{ width: `${Math.max(12, Math.round((lane.minutes / laneMaxMinutes) * 100))}%` }} />
+              </div>
+              <strong>{lane.minutes}m</strong>
+              <small>{lane.owner}</small>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="productivity-section">
@@ -814,7 +975,7 @@ export interface PanelsProps {
   onImportSkill: () => void;
   onTogglePause: () => void;
   onCopyLog: () => void;
-  onExport: () => void;
+  onRestoreRun: (run: ActiveRun) => void;
   onTemplate: (value: string) => void;
   onRunTemplate: (value: string) => void;
   onNotify: (title: string, detail: string, tone?: NotifyTone) => void;
@@ -849,7 +1010,7 @@ export default function Panels({
   onImportSkill,
   onTogglePause,
   onCopyLog,
-  onExport,
+  onRestoreRun,
   onTemplate,
   onRunTemplate,
   onNotify,
@@ -863,6 +1024,25 @@ export default function Panels({
   onRunCommand,
 }: PanelsProps) {
   const contextPanelOpen = ["agents", "schedule", "library", "connections", "billing", "notifications"].includes(panel);
+
+  function exportActiveRun() {
+    if (!activeRun) {
+      onNotify("산출물 내보내기", "실행 후 내보내기 가능", "warning");
+      return;
+    }
+    const artifact = activeRun.artifacts.find((item) => item.type === "pptx") ?? activeRun.artifacts[0];
+    if (!artifact) {
+      onNotify("산출물 내보내기", "생성된 산출물이 없습니다.", "warning");
+      return;
+    }
+    if (activeRun.source === "backend") {
+      const path = artifact.downloadUrl ?? `/api/runs/${encodeURIComponent(activeRun.id)}/artifacts/${encodeURIComponent(artifact.id)}/download`;
+      window.open(backendApiUrl(path), "_blank", "noopener,noreferrer");
+      onNotify("산출물 다운로드", `${artifact.title} 다운로드를 시작했습니다.`, "success");
+      return;
+    }
+    onNotify("산출물 내보내기", `${artifact.title} 로컬 프리뷰가 준비됨 · 백엔드 실행 시 다운로드 파일 생성`, "success");
+  }
 
   return (
     <>
@@ -883,7 +1063,8 @@ export default function Panels({
         onClose={onClosePanel}
         onTogglePause={onTogglePause}
         onCopyLog={onCopyLog}
-        onExport={onExport}
+        onExport={exportActiveRun}
+        onRestoreRun={onRestoreRun}
       />
       <ContextPanel panel={panel} open={contextPanelOpen} onClose={onClosePanel} onTemplate={onTemplate} onNotify={onNotify} />
       <WorkbenchPanel open={panel === "workbench"} onClose={onClosePanel} onTemplate={onTemplate} onRunTemplate={onRunTemplate} onNotify={onNotify} />
