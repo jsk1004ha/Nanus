@@ -6,6 +6,28 @@ import { advanceRun } from "./runProgress";
 import type { ActiveRun, Artifact, PanelId } from "./types";
 import "./run-workspace.css";
 
+interface AgentPhase {
+  id: string;
+  title: string;
+  detail: string;
+  progress: number;
+  index: number;
+}
+
+function getAgentPhases(run: ActiveRun): AgentPhase[] {
+  const raw = run.runtime?.agentLoop;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((item, index) => ({
+      id: String(item.id ?? `phase-${index + 1}`),
+      title: String(item.title ?? "Agent phase"),
+      detail: String(item.detail ?? "실행 중"),
+      progress: typeof item.progress === "number" && Number.isFinite(item.progress) ? item.progress : 0,
+      index: typeof item.index === "number" && Number.isFinite(item.index) ? item.index : index + 1,
+    }));
+}
+
 function RunArtifactCard({ run, artifact }: { run: ActiveRun; artifact: Artifact }) {
   const meta = getArtifactDownloadMeta(artifact);
   const downloadUrl = getArtifactDownloadUrl(run, artifact);
@@ -123,6 +145,8 @@ export default function RunWorkspace({
   const runtimeState = effectivelyPaused ? "PAUSED" : run.status === "complete" ? "FINISHED" : run.status.toUpperCase();
   const answerParagraphs = run.finalAnswer?.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean) ?? [];
   const health = runHealth(run, effectivelyPaused);
+  const agentPhases = getAgentPhases(run);
+  const latestPhase = agentPhases.length ? agentPhases[agentPhases.length - 1] : null;
   const evidence = [
     { label: "answer", value: (run.verification?.finalAnswerPresent ?? Boolean(run.finalAnswer)) ? "ready" : "pending" },
     { label: "verification", value: run.verification?.status ?? (terminal ? "missing" : "pending") },
@@ -131,9 +155,9 @@ export default function RunWorkspace({
   ];
   const runtimeStack = [
     { label: "State loop", value: runtimeState, detail: `${run.steps.filter((step) => step.state === "done").length}/${run.steps.length} steps` },
-    { label: "Memory", value: `${run.log.length} records`, detail: "user · agent · observe" },
+    { label: "Memory", value: `${run.log.length} records`, detail: run.runtime?.conversation ? "conversation-linked" : "user · agent · observe" },
     { label: "Tool collection", value: run.source === "backend" ? "FastAPI · Codex · MCP" : "Browser · Editor · Ask", detail: run.source === "backend" ? "SQLite + WebSocket stream" : "local tools + MCP-ready" },
-    { label: "Planning flow", value: activeStep?.title ?? "완료", detail: `${run.worker} handoff` },
+    { label: "Planning flow", value: latestPhase?.title ?? activeStep?.title ?? "완료", detail: latestPhase?.detail ?? `${run.worker} handoff` },
   ];
 
   return (
@@ -200,6 +224,18 @@ export default function RunWorkspace({
             ))}
           </dl>
         </section>
+
+        {agentPhases.length ? (
+          <section className="agent-phase-strip" aria-label="Agent loop phases">
+            {agentPhases.slice(-4).map((phase) => (
+              <span key={`${phase.id}-${phase.index}`}>
+                <small>{phase.index.toString().padStart(2, "0")}</small>
+                <strong>{phase.title}</strong>
+                <em>{phase.detail}</em>
+              </span>
+            ))}
+          </section>
+        ) : null}
 
         <span className="sr-only" data-testid="run-progress-value">
           {run.progress}
