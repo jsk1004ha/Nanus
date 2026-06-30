@@ -6,7 +6,6 @@ import {
   Bell,
   BellRing,
   ChevronDown,
-  CircleCheck,
   CornerDownLeft,
   FolderOpen,
   FolderPlus,
@@ -51,7 +50,7 @@ interface ProjectItem {
 }
 
 const Panels = lazy(() => import("./Panels"));
-const RunWorkspace = lazy(() => import("./RunWorkspace"));
+const OperationStage = lazy(() => import("./OperationStage"));
 
 const miniCommandLabels: Record<string, string> = {
   "deck-from-brief": "/deck",
@@ -343,160 +342,170 @@ function MainStage({
         </div>
       </header>
 
-      <section className="hero-workspace" aria-label="Nanus start workspace">
-        <span className="workspace-eyebrow">{copy.eyebrow}</span>
-        <div className="plan-toggle" role="group" aria-label="Execution mode">
-          <button type="button" className={mode === "local" ? "active" : undefined} onClick={() => onSetMode("local")}>
-            로컬 실행
-          </button>
-          <button type="button" className={mode === "private" ? "active" : undefined} onClick={() => onSetMode("private")}>
-            프라이빗
-          </button>
-        </div>
+      {activeRun ? (
+        <Suspense fallback={null}>
+          <OperationStage
+            activeRun={activeRun}
+            runPaused={runPaused}
+            composer={composer}
+            composerError={composerError}
+            onComposerChange={onComposerChange}
+            onOpenPanel={onOpenPanel}
+            onStartRun={onStartRun}
+            onTogglePause={onTogglePause}
+            onRunChange={onRunChange}
+          />
+        </Suspense>
+      ) : (
+        <section className="hero-workspace" aria-label="Nanus start workspace">
+          <span className="workspace-eyebrow">{copy.eyebrow}</span>
+          <div className="plan-toggle" role="group" aria-label="Execution mode">
+            <button type="button" className={mode === "local" ? "active" : undefined} onClick={() => onSetMode("local")}>
+              로컬 실행
+            </button>
+            <button type="button" className={mode === "private" ? "active" : undefined} onClick={() => onSetMode("private")}>
+              프라이빗
+            </button>
+          </div>
 
-        <h1>{copy.title}</h1>
+          <h1>{copy.title}</h1>
 
-        <div className={`composer-stack${suggestionsVisible ? " has-suggestions" : ""}`}>
-          <section className="composer" aria-label="작업 입력">
-            <label className="sr-only" htmlFor="nanus-composer">
-              작업 입력
-            </label>
-            <textarea
-              id="nanus-composer"
-              value={composer}
-              rows={3}
-              placeholder={copy.placeholder}
-              aria-invalid={Boolean(composerError)}
-              aria-describedby={composerError ? "composer-error" : undefined}
-              onChange={(event) => onComposerChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  onStartRun();
-                }
-              }}
-            />
-            {composerError ? (
-              <p id="composer-error" className="field-error" role="alert">
-                <AlertCircle />
-                {composerError}
-              </p>
-            ) : null}
-            <div className="composer-actions">
-              <div className="left-tools">
-                <button className="round-tool" type="button" aria-label="파일 첨부" title="파일 첨부" onClick={() => onOpenPanel("library")}>
-                  <Paperclip />
-                </button>
-                <button className="round-tool" type="button" aria-label="스킬 선택" title="스킬 선택" onClick={() => onOpenPanel("skills")}>
-                  <Workflow />
-                </button>
-                <button className="round-tool" type="button" aria-label="화면 연결" title="화면 연결" onClick={() => onOpenPanel("connections")}>
-                  <Monitor />
-                </button>
-              </div>
-              <div className="right-tools">
-                <button className="ghost-tool" type="button" aria-label="음성 입력 준비" title="음성 입력 준비" onClick={() => onOpenPanel("connections")}>
-                  <Mic />
-                </button>
-                <button className="ghost-tool" type="button" aria-label="마이크 권한" title="마이크 권한" onClick={() => onOpenPanel("notifications")}>
-                  <Mic />
-                </button>
-                <button className={`send-button${composer.trim() ? " ready" : ""}`} type="button" aria-label="실행" title="실행" onClick={onStartRun}>
-                  <ArrowUp />
-                </button>
-              </div>
-            </div>
-          </section>
-
-          {suggestionsVisible ? (
-            <section className="suggestions" aria-label="추천 항목">
-              <div className="suggestion-header">
-                <strong>추천 항목</strong>
-                <div>
-                  <IconButton label="새로고침" small onClick={onRefreshSuggestions}>
-                    <RefreshCw />
-                  </IconButton>
-                  <IconButton label="닫기" small onClick={onHideSuggestions}>
-                    <X />
-                  </IconButton>
+          <div className={`composer-stack${suggestionsVisible ? " has-suggestions" : ""}`}>
+            <section className="composer" aria-label="작업 입력">
+              <label className="sr-only" htmlFor="nanus-composer">
+                작업 입력
+              </label>
+              <textarea
+                id="nanus-composer"
+                value={composer}
+                rows={3}
+                placeholder={copy.placeholder}
+                aria-invalid={Boolean(composerError)}
+                aria-describedby={composerError ? "composer-error" : undefined}
+                onChange={(event) => onComposerChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    onStartRun();
+                  }
+                }}
+              />
+              {composerError ? (
+                <p id="composer-error" className="field-error" role="alert">
+                  <AlertCircle />
+                  {composerError}
+                </p>
+              ) : null}
+              <div className="composer-actions">
+                <div className="left-tools">
+                  <button className="round-tool" type="button" aria-label="파일 첨부" title="파일 첨부" onClick={() => onOpenPanel("library")}>
+                    <Paperclip />
+                  </button>
+                  <button className="round-tool" type="button" aria-label="스킬 선택" title="스킬 선택" onClick={() => onOpenPanel("skills")}>
+                    <Workflow />
+                  </button>
+                  <button className="round-tool" type="button" aria-label="화면 연결" title="화면 연결" onClick={() => onOpenPanel("connections")}>
+                    <Monitor />
+                  </button>
+                </div>
+                <div className="right-tools">
+                  <button className="ghost-tool" type="button" aria-label="음성 입력 준비" title="음성 입력 준비" onClick={() => onOpenPanel("connections")}>
+                    <Mic />
+                  </button>
+                  <button className="ghost-tool" type="button" aria-label="마이크 권한" title="마이크 권한" onClick={() => onOpenPanel("notifications")}>
+                    <Mic />
+                  </button>
+                  <button className={`send-button${composer.trim() ? " ready" : ""}`} type="button" aria-label="실행" title="실행" onClick={onStartRun}>
+                    <ArrowUp />
+                  </button>
                 </div>
               </div>
-              <div className="suggestion-grid">
-                {suggestions.map((item) => (
-                  <button key={item.id} className="suggestion-card" type="button" onClick={() => onTemplate(item.command)}>
-                    <div className="integration-row">
-                      {item.tags.map((tag) => (
-                        <span key={`${item.id}-${tag.label}`} className={`integration ${tag.tone}`}>
-                          {tag.label}
-                        </span>
-                      ))}
-                    </div>
-                    <span>{item.body}</span>
-                    <CornerDownLeft />
-                  </button>
-                ))}
-              </div>
             </section>
-          ) : (
-            <button className="restore-suggestions" type="button" onClick={onRefreshSuggestions}>
-              추천 항목 다시 보기
-            </button>
-          )}
-        </div>
 
-        {activeRun ? (
-          <Suspense fallback={null}>
-            <RunWorkspace run={activeRun} paused={runPaused} onOpenPanel={onOpenPanel} onTogglePause={onTogglePause} onRunChange={onRunChange} />
-          </Suspense>
-        ) : null}
-
-        <section className="quick-actions" aria-label="빠른 작업">
-          {quickActions.map((action) => {
-            const Icon = action.icon;
-            return (
-              <button key={action.id} type="button" onClick={() => onTemplate(action.command)}>
-                <Icon />
-                <span>{action.label}</span>
+            {suggestionsVisible ? (
+              <section className="suggestions" aria-label="추천 항목">
+                <div className="suggestion-header">
+                  <strong>추천 항목</strong>
+                  <div>
+                    <IconButton label="새로고침" small onClick={onRefreshSuggestions}>
+                      <RefreshCw />
+                    </IconButton>
+                    <IconButton label="닫기" small onClick={onHideSuggestions}>
+                      <X />
+                    </IconButton>
+                  </div>
+                </div>
+                <div className="suggestion-grid">
+                  {suggestions.map((item) => (
+                    <button key={item.id} className="suggestion-card" type="button" onClick={() => onTemplate(item.command)}>
+                      <div className="integration-row">
+                        {item.tags.map((tag) => (
+                          <span key={`${item.id}-${tag.label}`} className={`integration ${tag.tone}`}>
+                            {tag.label}
+                          </span>
+                        ))}
+                      </div>
+                      <span>{item.body}</span>
+                      <CornerDownLeft />
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <button className="restore-suggestions" type="button" onClick={onRefreshSuggestions}>
+                추천 항목 다시 보기
               </button>
-            );
-          })}
-          <button type="button" onClick={() => onOpenPanel("skills")}>
-            <MoreHorizontal />
-            <span>더보기</span>
-          </button>
-        </section>
+            )}
+          </div>
 
-        <section className="workspace-summary" aria-label="Workspace status">
-          <button type="button" onClick={() => onOpenPanel("skills")}>
-            <ShieldCheck />
-            <span>
-              <strong>스킬 생성</strong>
-              <small>반복 작업을 팀 라이브러리로 승격</small>
-            </span>
-          </button>
-          <button type="button" onClick={() => onOpenPanel("run")}>
-            <Activity />
-            <span>
-              <strong>실행 기록</strong>
-              <small>권한, 로그, 산출물 추적</small>
-            </span>
-          </button>
-          <button type="button" onClick={() => onOpenPanel("library")}>
-            <FolderOpen />
-            <span>
-              <strong>산출물 보관함</strong>
-              <small>PPT, HWPX, 웹 요약본 관리</small>
-            </span>
-          </button>
-          <button type="button" onClick={() => onOpenPanel("productivity")}>
-            <Activity />
-            <span>
-              <strong>생산성 엔진</strong>
-              <small>Manus 대비 절감 시간과 병렬 레인 측정</small>
-            </span>
-          </button>
+          <section className="quick-actions" aria-label="빠른 작업">
+            {quickActions.map((action) => {
+              const Icon = action.icon;
+              return (
+                <button key={action.id} type="button" onClick={() => onTemplate(action.command)}>
+                  <Icon />
+                  <span>{action.label}</span>
+                </button>
+              );
+            })}
+            <button type="button" onClick={() => onOpenPanel("skills")}>
+              <MoreHorizontal />
+              <span>더보기</span>
+            </button>
+          </section>
+
+          <section className="workspace-summary" aria-label="Workspace status">
+            <button type="button" onClick={() => onOpenPanel("skills")}>
+              <ShieldCheck />
+              <span>
+                <strong>스킬 생성</strong>
+                <small>반복 작업을 팀 라이브러리로 승격</small>
+              </span>
+            </button>
+            <button type="button" onClick={() => onOpenPanel("run")}>
+              <Activity />
+              <span>
+                <strong>실행 기록</strong>
+                <small>권한, 로그, 산출물 추적</small>
+              </span>
+            </button>
+            <button type="button" onClick={() => onOpenPanel("library")}>
+              <FolderOpen />
+              <span>
+                <strong>산출물 보관함</strong>
+                <small>PPT, HWPX, 웹 요약본 관리</small>
+              </span>
+            </button>
+            <button type="button" onClick={() => onOpenPanel("productivity")}>
+              <Activity />
+              <span>
+                <strong>생산성 엔진</strong>
+                <small>Manus 대비 절감 시간과 병렬 레인 측정</small>
+              </span>
+            </button>
+          </section>
         </section>
-      </section>
+      )}
     </main>
   );
 }
@@ -549,7 +558,7 @@ function ToastViewport({ toast, onDismiss }: { toast: ToastMessage | null; onDis
     <div className="toast-viewport" aria-live="polite" aria-atomic="true">
       {toast ? (
         <div className={`toast ${toast.tone ?? "default"}`}>
-          {toast.tone === "success" ? <CircleCheck /> : toast.tone === "warning" ? <AlertCircle /> : <Sparkles />}
+          {toast.tone === "warning" ? <AlertCircle /> : <Sparkles />}
           <span>
             <strong>{toast.title}</strong>
             <small>{toast.detail}</small>
@@ -665,9 +674,20 @@ export function App() {
   function selectView(view: ViewId) {
     setActiveView(view);
     setMobileSidebarOpen(false);
-    if (view === "home") setPanel("none");
-    else if (view === "skills") setPanel("skills");
-    else setPanel(view);
+    if (view === "home") {
+      runLaunchCount.current += 1;
+      runStreamCleanup.current?.();
+      runStreamCleanup.current = null;
+      setActiveRun(null);
+      setRunPaused(false);
+      setComposer("");
+      setComposerError("");
+      setSuggestionsVisible(true);
+      setPanel("none");
+    } else if (view === "skills") {
+      if (!composer.trim()) setComposer(`${selectedSkill.command} `);
+      setPanel("skills");
+    } else setPanel(view);
   }
 
   function selectSkill(skill: SkillPackage) {
@@ -683,6 +703,7 @@ export function App() {
     setComposer(value);
     setComposerError("");
     setSuggestionsVisible(true);
+    setPanel("none");
     setPaletteOpen(false);
     setPaletteQuery("");
   }
@@ -706,6 +727,9 @@ export function App() {
     const localRun: ActiveRun = { ...createRun(input), source: "local" };
     setActiveRun(localRun);
     setRunPaused(false);
+    setComposer("");
+    setComposerError("");
+    setSuggestionsVisible(false);
     setPanel("none");
     setMobileSidebarOpen(false);
     notify("실행 시작", `${launchMode === "local" ? "로컬" : "프라이빗"} · ${localRun.title}`, "success");
@@ -760,7 +784,7 @@ export function App() {
     setProjectDraft("");
     setProjectError("");
     setPanel("none");
-      notify("프로젝트 생성됨", `${name} 추가됨`, "success");
+    notify("프로젝트 생성됨", `${name} 추가됨`, "success");
   }
 
   function handleNotificationChoice(enabled: boolean) {

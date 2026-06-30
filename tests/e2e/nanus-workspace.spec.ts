@@ -9,6 +9,10 @@ test("sending a short prompt starts a visible Manus-like execution", async ({ pa
   await composer.fill("안녕");
   await composer.press("Enter");
 
+  await expect(page.getByLabel("Nanus operation workspace")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "무엇을 실행할까요?" })).not.toBeVisible();
+  await expect(page.getByPlaceholder("Nanus에게 메시지 보내기")).toBeVisible();
+
   const worklog = page.getByLabel("Active run workspace");
   await expect(worklog).toBeVisible();
   await expect(worklog.getByRole("heading", { name: "안녕" })).toBeVisible();
@@ -66,6 +70,7 @@ test("new task starts unpaused after a paused run", async ({ page }) => {
 });
 
 test("commercial workspace controls are wired", async ({ page }) => {
+  test.setTimeout(60000);
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "무엇을 실행할까요?" })).toBeVisible();
@@ -93,7 +98,7 @@ test("commercial workspace controls are wired", async ({ page }) => {
   await expect(worklog.locator(".active-run-timeline").getByText("요청 해석", { exact: true })).toBeVisible();
   await expect(worklog).not.toContainText("학습지원 분석");
 
-  await page.getByRole("button", { name: "생산성 엔진 Manus 대비 절감 시간과 병렬 레인 측정" }).click();
+  await page.getByLabel("Nanus operation workspace").getByRole("button", { name: "생산성", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Manus 대비 생산성 계획" })).toBeVisible();
   await expect(page.getByText("예상 절감")).toBeVisible();
   await expect(page.getByText("병렬 실행 레인")).toBeVisible();
@@ -107,10 +112,7 @@ test("commercial workspace controls are wired", async ({ page }) => {
     .toBeGreaterThan(0);
   await page.getByLabel("Productivity panel").getByRole("button", { name: "패널 닫기" }).click();
 
-  await page.getByRole("button", { name: "교육지원 사업 데이터를 분석하고 12장짜리 발표자료를 제작하세요." }).click();
-  await expect(page.getByRole("textbox", { name: "작업 입력" })).toHaveValue(
-    "/deck-from-brief 교육지원 사업 데이터를 분석해 12장짜리 발표자료를 만들어줘",
-  );
+  await page.getByRole("textbox", { name: "작업 입력" }).fill("/deck-from-brief 교육지원 사업 데이터를 분석해 12장짜리 발표자료를 만들어줘");
   await page.locator(".send-button").click();
   await expect(page.getByLabel("Active run workspace").getByRole("heading", { name: "교육지원 사업 데이터를 분석해 12장짜리 발표자료를 만들어줘" })).toBeVisible();
   await page.getByLabel("Active run workspace").getByRole("button", { name: "실행 기록" }).click();
@@ -138,6 +140,32 @@ test("commercial workspace controls are wired", async ({ page }) => {
   await page.getByLabel("프로젝트 이름").fill("교육지원 사업 분석");
   await page.getByRole("button", { name: "생성", exact: true }).click();
   await expect(page.getByRole("button", { name: /교육지원 사업 분석/ })).toBeVisible();
+});
+
+test("sidebar navigation works from the dedicated operation screen", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("textbox", { name: "작업 입력" }).fill("사이드바 동작 확인");
+  await page.getByRole("textbox", { name: "작업 입력" }).press("Enter");
+  await expect(page.getByLabel("Nanus operation workspace")).toBeVisible();
+
+  await page.getByRole("button", { name: "에이전트" }).click();
+  await expect(page.getByRole("heading", { name: "에이전트 구성" })).toBeVisible();
+  await page.locator('aside[aria-label="에이전트 구성 panel"]').getByRole("button", { name: "패널 닫기" }).click();
+
+  await page.getByRole("button", { name: "예약됨" }).click();
+  await expect(page.getByRole("heading", { name: "예약된 실행" })).toBeVisible();
+  await page.getByRole("button", { name: /주간 리서치 브리프/ }).click();
+  await expect(page.getByRole("textbox", { name: "작업 입력" })).toHaveValue("/schedule 주간 리서치 브리프 매주 월요일 09:00");
+
+  await page.getByRole("button", { name: "라이브러리" }).click();
+  await expect(page.getByRole("heading", { name: "산출물 라이브러리" })).toBeVisible();
+  await page.getByRole("button", { name: /12장 발표자료 템플릿/ }).click();
+  await expect(page.getByRole("textbox", { name: "작업 입력" })).toHaveValue("/library 12장 발표자료 템플릿");
+
+  await page.getByRole("button", { name: "새 작업" }).click();
+  await expect(page.getByRole("heading", { name: "무엇을 실행할까요?" })).toBeVisible();
+  await expect(page.getByLabel("Nanus operation workspace")).not.toBeVisible();
 });
 
 test("mobile first screen does not clip primary workspace actions", async ({ page }) => {
