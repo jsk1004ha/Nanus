@@ -57,20 +57,26 @@ def test_run_creation_websocket_stream_and_persistence(tmp_path: Path) -> None:
         while True:
             event = websocket.receive_json()
             stream_events.append(event)
-            if event["type"] == "run.done":
+            if event["type"] in {"run.done", "run.degraded"}:
                 break
 
     final_run = stream_events[-1]["payload"]["run"]
-    assert final_run["status"] == "complete"
+    assert final_run["status"] == "degraded"
     assert final_run["progress"] == 100
     assert final_run["finalAnswer"]
     assert final_run["verification"]["backendUsed"] is True
+    assert final_run["verification"]["status"] == "degraded"
+    assert final_run["verification"]["finalAnswerPresent"] is True
+    assert final_run["verification"]["artifactIntegrityOk"] is True
+    assert final_run["verification"]["traceClosed"] is True
     assert "백그라운드 작업자가 실행을 시작했습니다." in final_run["log"]
+    assert "최종 답변 contract: finalAnswer 검증 완료" in final_run["log"]
     assert any("Python skill /deck-from-brief" in line for line in final_run["log"])
     assert any(event["type"] == "artifact.created" for event in stream_events)
+    assert any(event["type"] == "assistant.message.completed" for event in stream_events)
 
     persisted = client.get(f"/api/runs/{run['id']}").json()
-    assert persisted["status"] == "complete"
+    assert persisted["status"] == "degraded"
     artifacts = client.get(f"/api/runs/{run['id']}/artifacts").json()["artifacts"]
     assert [artifact["type"] for artifact in artifacts] == ["outline", "pptx"]
     assert [artifact["type"] for artifact in final_run["artifacts"]] == ["outline", "pptx"]
@@ -102,13 +108,13 @@ def test_run_creation_websocket_stream_and_persistence(tmp_path: Path) -> None:
     missing_run = client.get("/api/runs/not-found/artifacts/not-found/download")
     assert missing_run.status_code == 404
     events = client.get(f"/api/runs/{run['id']}/events").json()["events"]
-    assert {event["type"] for event in events} >= {"run.created", "run.queued", "run.started", "run.done"}
+    assert {event["type"] for event in events} >= {"run.created", "run.queued", "run.started", "run.degraded", "assistant.message.completed"}
     later_events = client.get(f"/api/runs/{run['id']}/events?after={events[0]['id']}").json()["events"]
     assert later_events
     assert all(event["id"] > events[0]["id"] for event in later_events)
 
 
-def test_run_completes_without_websocket_subscriber(tmp_path: Path) -> None:
+def test_run_finishes_without_websocket_subscriber(tmp_path: Path) -> None:
     client = make_client(tmp_path)
 
     created = client.post("/api/runs", json={"input": "/deck-from-brief 독립 백그라운드 실행", "mode": "local"})
@@ -118,7 +124,7 @@ def test_run_completes_without_websocket_subscriber(tmp_path: Path) -> None:
     final_run = None
     for _ in range(30):
         candidate = client.get(f"/api/runs/{run_id}").json()
-        if candidate["status"] == "complete":
+        if candidate["status"] in {"complete", "degraded"}:
             final_run = candidate
             break
         time.sleep(0.05)
@@ -126,7 +132,7 @@ def test_run_completes_without_websocket_subscriber(tmp_path: Path) -> None:
     assert final_run is not None
     assert final_run["progress"] == 100
     events = client.get(f"/api/runs/{run_id}/events").json()["events"]
-    assert events[-1]["type"] == "run.done"
+    assert events[-1]["type"] in {"run.done", "run.degraded"}
     assert [artifact["type"] for artifact in client.get(f"/api/runs/{run_id}/artifacts").json()["artifacts"]] == ["outline", "pptx"]
 
 
@@ -141,10 +147,11 @@ def test_writing_advice_long_input_returns_final_answer_not_deck(tmp_path: Path)
     assert run["worker"] == "Writing Coach"
 
     final_run = wait_for_terminal_run(client, run["id"])
-    assert final_run["status"] == "complete"
+    assert final_run["status"] == "degraded"
     assert final_run["resultType"] == "writing_advice"
     assert "글을 늘릴 때는" in final_run["finalAnswer"]
     assert final_run["verification"]["fallbackUsed"] is True
+    assert final_run["verification"]["status"] == "degraded"
     artifacts = client.get(f"/api/runs/{run['id']}/artifacts").json()["artifacts"]
     assert [artifact["type"] for artifact in artifacts] == ["markdown"]
 
@@ -159,6 +166,22 @@ def test_chat_endpoint_creates_message_backed_run(tmp_path: Path) -> None:
     assert payload["assistantMessageId"].startswith("msg-")
     assert payload["runId"] == payload["run"]["id"]
     assert payload["run"]["kind"] == "writing"
+    assert payload["run"]["runtime"]["conversation"]["id"] == payload["conversationId"]
+
+
+def test_conversation_message_endpoint_preserves_conversation_id(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    created = client.post(
+        "/api/conversations/conv-user-visible/messages",
+        json={"message": "보고서 문단을 더 설득력 있게 늘려줘", "mode": "local"},
+    )
+
+    assert created.status_code == 200
+    payload = created.json()
+    assert payload["conversationId"] == "conv-user-visible"
+    assert payload["userMessageId"].startswith("user-")
+    assert payload["assistantMessageId"].startswith("msg-")
+    assert payload["run"]["runtime"]["conversation"]["id"] == "conv-user-visible"
 
 
 def test_run_pause_resume_and_cancel_endpoints(tmp_path: Path) -> None:
@@ -283,11 +306,12 @@ def test_code_or_app_run_uses_codex_bridge_fallback(tmp_path: Path) -> None:
     with client.websocket_connect(f"/ws/run/{run['id']}") as websocket:
         while True:
             event = websocket.receive_json()
-            if event["type"] == "run.done":
+            if event["type"] in {"run.done", "run.degraded"}:
                 final_run = event["payload"]["run"]
                 break
 
-    assert final_run["status"] == "complete"
+    assert final_run["status"] == "degraded"
     assert any("Codex Bridge: deterministic fallback" in line for line in final_run["log"])
+    assert final_run["verification"]["status"] == "degraded"
     artifacts = client.get(f"/api/runs/{run['id']}/artifacts").json()["artifacts"]
     assert any(artifact["type"] == "codex-summary" for artifact in artifacts)

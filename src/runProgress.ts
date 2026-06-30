@@ -35,7 +35,7 @@ export function advanceRun(run: ActiveRun): ActiveRun {
 
   const progress = Math.min(100, run.progress + progressIncrement);
   const steps = progressSteps(run.steps, progress);
-  const status: ActiveRun["status"] = progress >= 100 ? "complete" : "running";
+  const status: ActiveRun["status"] = progress >= 100 ? "degraded" : "running";
   const previousDoneIds = new Set(run.steps.filter((step) => step.state === "done").map((step) => step.id));
   let log = run.log;
 
@@ -50,8 +50,8 @@ export function advanceRun(run: ActiveRun): ActiveRun {
     log = appendRunLog(log, `현재 단계: ${activeStep.title}`);
   }
 
-  if (status === "complete") {
-    log = appendRunLog(log, "실행이 완료되었습니다.");
+  if (status === "degraded") {
+    log = appendRunLog(log, "제한 실행으로 종료되었습니다. 실제 백엔드 없이 로컬 미리보기 답변을 표시합니다.");
   }
 
   return {
@@ -60,14 +60,18 @@ export function advanceRun(run: ActiveRun): ActiveRun {
     status,
     steps,
     log,
-    finalAnswer: status === "complete" ? localFinalAnswer(run) : run.finalAnswer,
-    resultType: status === "complete" ? run.resultType ?? (run.kind === "writing" ? "writing_advice" : "answer") : run.resultType,
+    finalAnswer: status === "degraded" ? localFinalAnswer(run) : run.finalAnswer,
+    resultType: status === "degraded" ? run.resultType ?? (run.kind === "writing" ? "writing_advice" : "answer") : run.resultType,
     verification:
-      status === "complete"
+      status === "degraded"
         ? run.verification ?? {
             backendUsed: false,
             llmUsed: false,
             fallbackUsed: true,
+            status: "degraded",
+            finalAnswerPresent: true,
+            artifactIntegrityOk: true,
+            traceClosed: true,
             errors: [],
             warnings: ["브라우저 로컬 미리보기 결과입니다."],
           }

@@ -188,6 +188,95 @@
   white-space: pre-wrap;
 }
 
+.execution-health {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.execution-health.verified {
+  border-color: color-mix(in srgb, var(--success) 42%, var(--line));
+}
+
+.execution-health.degraded,
+.execution-health.waiting {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--line));
+}
+
+.execution-health.failed,
+.execution-health.cancelled {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--line));
+}
+
+.execution-health span,
+.execution-health strong,
+.execution-health small {
+  display: block;
+}
+
+.execution-health > div > span {
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.execution-health strong {
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.execution-health small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.execution-health dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(54px, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.execution-health dl span {
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+}
+
+.execution-health dt,
+.execution-health dd {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.execution-health dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 780;
+}
+
+.execution-health dd {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 820;
+}
+
 .agent-run-metrics {
   display: grid;
   grid-template-columns: 1.4fr 0.8fr 0.8fr;
@@ -466,6 +555,8 @@
 
   .agent-run-metrics,
   .agent-runtime-grid,
+  .execution-health,
+  .execution-health dl,
   .active-run-timeline,
   .active-run-artifacts,
   .active-run-artifact {

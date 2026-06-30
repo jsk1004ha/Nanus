@@ -129,6 +129,10 @@ export interface ActiveRun {
     backendUsed: boolean;
     llmUsed: boolean;
     fallbackUsed: boolean;
+    status?: "verified" | "degraded" | "failed" | "pending";
+    finalAnswerPresent?: boolean;
+    artifactIntegrityOk?: boolean;
+    traceClosed?: boolean;
     errors: string[];
     warnings: string[];
   };

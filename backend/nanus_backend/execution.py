@@ -40,6 +40,53 @@ def _final_answer(adapter_result: dict[str, Any]) -> str:
     return final_answer
 
 
+def _download_integrity_ok(artifact: dict[str, Any]) -> bool:
+    content = artifact.get("content")
+    if not isinstance(content, dict):
+        return True
+    download = content.get("download")
+    if not isinstance(download, dict):
+        return True
+    return bool(download.get("filename")) and bool(download.get("mimeType")) and isinstance(download.get("size"), int) and download["size"] > 0
+
+
+def _artifact_integrity_ok(artifacts: list[dict[str, Any]]) -> bool:
+    return all(
+        bool(artifact.get("id"))
+        and bool(artifact.get("title"))
+        and bool(artifact.get("type"))
+        and _download_integrity_ok(artifact)
+        for artifact in artifacts
+    )
+
+
+def _normalize_verification(adapter_result: dict[str, Any], *, final_answer: str, artifacts: list[dict[str, Any]]) -> dict[str, Any]:
+    raw = adapter_result.get("verification") if isinstance(adapter_result.get("verification"), dict) else {}
+    errors = [str(item) for item in raw.get("errors", []) if str(item).strip()]
+    warnings = [str(item) for item in raw.get("warnings", []) if str(item).strip()]
+    fallback_used = bool(raw.get("fallbackUsed"))
+    final_answer_present = bool(final_answer.strip())
+    artifact_integrity_ok = _artifact_integrity_ok(artifacts)
+    if not final_answer_present:
+        errors.append("finalAnswer is missing")
+    if not artifact_integrity_ok:
+        errors.append("artifact integrity check failed")
+    if fallback_used and not any("fallback" in warning.lower() or "제한" in warning for warning in warnings):
+        warnings.append("실제 LLM/도구 대신 제한 실행 fallback을 사용했습니다.")
+    status = "failed" if errors else "degraded" if fallback_used else "verified"
+    return {
+        "backendUsed": bool(raw.get("backendUsed", True)),
+        "llmUsed": bool(raw.get("llmUsed", False)),
+        "fallbackUsed": fallback_used,
+        "status": status,
+        "finalAnswerPresent": final_answer_present,
+        "artifactIntegrityOk": artifact_integrity_ok,
+        "traceClosed": True,
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
 class ExecutionEngine:
     def __init__(self, store: RunStore, *, llm: AnthropicMessagesClient | None = None, codex: CodexBridge | None = None) -> None:
         self.store = store
@@ -102,15 +149,16 @@ class ExecutionEngine:
                 return
             run["finalAnswer"] = final_answer
             run["resultType"] = str(adapter_result.get("resultType") or run.get("kind") or "answer")
-            run["verification"] = adapter_result.get("verification") or {
-                "backendUsed": True,
-                "llmUsed": False,
-                "fallbackUsed": False,
-                "errors": [],
-                "warnings": [],
-            }
+            run["verification"] = _normalize_verification(
+                adapter_result,
+                final_answer=final_answer,
+                artifacts=[artifact for artifact in adapter_result.get("artifacts", []) if isinstance(artifact, dict)],
+            )
+            if run["verification"]["status"] == "failed":
+                raise RuntimeError("; ".join(run["verification"]["errors"]) or "Result contract validation failed")
             for line in adapter_result.get("logs", []):
                 _append_log(run, line)
+            _append_log(run, "최종 답변 contract: finalAnswer 검증 완료")
 
             persisted_artifacts: list[dict[str, Any]] = []
             for artifact in adapter_result.get("artifacts", []):
@@ -126,6 +174,16 @@ class ExecutionEngine:
                     for artifact in run.get("artifacts", [])
                     if artifact.get("id") not in persisted_ids and artifact.get("type") not in persisted_types
                 ] + persisted_artifacts
+            self._event(
+                run_id,
+                "assistant.message.completed",
+                {
+                    "runId": run_id,
+                    "finalAnswer": final_answer,
+                    "resultType": run.get("resultType"),
+                    "verification": run.get("verification"),
+                },
+            )
             self._persist_and_emit(run)
 
             await self._checkpoint(run_id, job_id)
@@ -153,11 +211,15 @@ class ExecutionEngine:
             _set_progress(run, 100)
             for title in _newly_done_titles(previous_steps, run["steps"]):
                 _append_log(run, f"완료: {title}")
-            _append_log(run, "실행이 완료되었습니다.")
-            run["status"] = "complete"
+            verification_status = str(run.get("verification", {}).get("status") or "verified")
+            run["status"] = "degraded" if verification_status == "degraded" else "complete"
+            if run["status"] == "degraded":
+                _append_log(run, "제한 실행으로 종료되었습니다. 답변은 제공되었지만 fallback 또는 일부 제한이 있습니다.")
+            else:
+                _append_log(run, "실행이 완료되었습니다.")
             self._persist_and_emit(run)
-            self.store.update_job(job_id, "complete")
-            self._event(run_id, "run.done", {"run": run})
+            self.store.update_job(job_id, run["status"])
+            self._event(run_id, "run.done" if run["status"] == "complete" else "run.degraded", {"run": run})
         except Exception as exc:
             failed_run = self.store.get_run(run_id)
             if failed_run:

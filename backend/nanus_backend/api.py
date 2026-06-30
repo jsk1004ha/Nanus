@@ -80,8 +80,8 @@ DEFAULT_CORS_ORIGINS = (
     "http://localhost:4173",
 )
 
-TERMINAL_RUN_STATUSES = {"complete", "failed", "cancelled"}
-TERMINAL_EVENT_TYPES = {"run.done", "run.failed", "run.cancelled"}
+TERMINAL_RUN_STATUSES = {"complete", "failed", "cancelled", "degraded"}
+TERMINAL_EVENT_TYPES = {"run.done", "run.failed", "run.cancelled", "run.degraded"}
 
 
 def _cors_origins() -> list[str]:
@@ -189,9 +189,15 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
             return await generic_llm_result(prompt, llm)
         raise HTTPException(status_code=404, detail="Unknown tool")
 
-    def create_and_enqueue_run(input_text: str, mode: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    def create_and_enqueue_run(input_text: str, mode: str, *, conversation_id: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         _ensure_run_input_size(input_text)
         run = create_run(input_text, mode=mode)
+        resolved_conversation_id = conversation_id or f"conv-{run['id'][:12]}"
+        run["runtime"]["conversation"] = {
+            "id": resolved_conversation_id,
+            "userMessageId": f"user-{run['id'][:12]}",
+            "assistantMessageId": f"msg-{run['id'][:12]}",
+        }
         store.save_run(run)
         job = supervisor.enqueue_run(run["id"])
         run["runtime"]["jobId"] = job["id"]
@@ -230,11 +236,24 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/chat")
     async def create_chat_message(payload: ChatMessageRequest) -> dict[str, Any]:
-        run, _job = create_and_enqueue_run(payload.message, payload.mode)
-        conversation_id = payload.conversationId or f"conv-{run['id'][:12]}"
+        run, _job = create_and_enqueue_run(payload.message, payload.mode, conversation_id=payload.conversationId)
+        conversation = run["runtime"]["conversation"]
         return {
-            "conversationId": conversation_id,
-            "assistantMessageId": f"msg-{run['id'][:12]}",
+            "conversationId": conversation["id"],
+            "assistantMessageId": conversation["assistantMessageId"],
+            "runId": run["id"],
+            "status": run["status"],
+            "run": run,
+        }
+
+    @app.post("/api/conversations/{conversation_id}/messages")
+    async def append_conversation_message(conversation_id: str, payload: ChatMessageRequest) -> dict[str, Any]:
+        run, _job = create_and_enqueue_run(payload.message, payload.mode, conversation_id=conversation_id)
+        conversation = run["runtime"]["conversation"]
+        return {
+            "conversationId": conversation["id"],
+            "userMessageId": conversation["userMessageId"],
+            "assistantMessageId": conversation["assistantMessageId"],
             "runId": run["id"],
             "status": run["status"],
             "run": run,

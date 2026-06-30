@@ -24,7 +24,9 @@ test("sending a short prompt starts a visible Manus-like execution", async ({ pa
   await expect(worklog.getByLabel("OpenManus-inspired runtime").getByText("Tool collection")).toBeVisible();
 
   await expect.poll(async () => Number(await worklog.getByTestId("run-progress-value").textContent())).toBeGreaterThan(60);
-  await expect.poll(async () => (await worklog.getByTestId("run-status").textContent())?.trim()).toBe("완료됨");
+  await expect.poll(async () => (await worklog.getByTestId("run-status").textContent())?.trim()).toBe("제한 실행");
+  await expect(worklog.getByLabel("Execution health")).toContainText("제한 실행");
+  await expect(worklog.getByLabel("Execution health")).toContainText("verification");
   await expect(worklog.getByText("완료: 결과 작성")).toBeVisible();
   const artifactRegion = worklog.getByLabel("Run artifacts");
   await expect(artifactRegion.getByRole("button", { name: /온라인 열기/ }).first()).toBeVisible();
@@ -39,7 +41,7 @@ test("sending a short prompt starts a visible Manus-like execution", async ({ pa
   await worklog.getByRole("button", { name: "실행 기록" }).click();
   const inspector = page.getByLabel("Current run inspector");
   await expect(inspector.getByRole("heading", { name: "안녕" })).toBeVisible();
-  await expect(inspector.getByText("완료됨")).toBeVisible();
+  await expect(inspector.getByText("제한 실행", { exact: true })).toBeVisible();
   await expect(inspector.getByLabel("Artifact preview")).toContainText("Artifact Viewer");
   await expect(inspector.getByLabel("Artifact preview")).toContainText("안녕 결과");
   await expect(inspector.getByRole("button", { name: "일시정지" })).toBeDisabled();

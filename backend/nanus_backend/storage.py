@@ -175,7 +175,7 @@ class RunStore:
         now = time()
         with self._lock, self._connection() as conn:
             row = conn.execute("select * from jobs where id = ?", (job_id,)).fetchone()
-            if not row or row["status"] in {"complete", "failed", "cancelled"}:
+            if not row or row["status"] in {"complete", "failed", "cancelled", "degraded"}:
                 return self._row_to_job(row) if row else None
             conn.execute(
                 """

@@ -44,6 +44,36 @@ function RunArtifactCard({ run, artifact }: { run: ActiveRun; artifact: Artifact
   );
 }
 
+function runHealth(run: ActiveRun, paused: boolean) {
+  if (run.status === "failed") {
+    return {
+      tone: "failed",
+      label: "실패",
+      detail: run.verification?.errors?.[0] ?? "실행이 실패했습니다.",
+    };
+  }
+  if (run.status === "cancelled") {
+    return { tone: "cancelled", label: "취소됨", detail: "사용자가 실행을 중단했습니다." };
+  }
+  if (paused || run.status === "paused") {
+    return { tone: "waiting", label: "멈춤", detail: "실행 상태와 작업 로그가 보존되어 있습니다." };
+  }
+  if (run.status === "waiting") {
+    return { tone: "waiting", label: "승인 대기", detail: "위험 작업을 진행하기 전에 사용자 승인이 필요합니다." };
+  }
+  if (run.status === "degraded" || run.verification?.status === "degraded" || run.verification?.fallbackUsed) {
+    return {
+      tone: "degraded",
+      label: "제한 실행",
+      detail: run.verification?.warnings?.[0] ?? "답변은 생성됐지만 fallback 또는 제한된 도구 결과입니다.",
+    };
+  }
+  if (run.status === "complete" && run.verification?.status === "verified") {
+    return { tone: "verified", label: "검증 통과", detail: "finalAnswer와 artifact 무결성 검사를 통과했습니다." };
+  }
+  return { tone: "running", label: "실행 중", detail: "답변과 실행 증거를 생성하고 있습니다." };
+}
+
 export default function RunWorkspace({
   run,
   paused,
@@ -92,6 +122,13 @@ export default function RunWorkspace({
   const visibleLogs = run.log.slice(-6);
   const runtimeState = effectivelyPaused ? "PAUSED" : run.status === "complete" ? "FINISHED" : run.status.toUpperCase();
   const answerParagraphs = run.finalAnswer?.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean) ?? [];
+  const health = runHealth(run, effectivelyPaused);
+  const evidence = [
+    { label: "answer", value: (run.verification?.finalAnswerPresent ?? Boolean(run.finalAnswer)) ? "ready" : "pending" },
+    { label: "verification", value: run.verification?.status ?? (terminal ? "missing" : "pending") },
+    { label: "artifacts", value: run.verification?.artifactIntegrityOk === false ? "failed" : `${run.artifacts.length}` },
+    { label: "trace", value: (run.verification?.traceClosed ?? terminal) ? "closed" : `${run.log.length} events` },
+  ];
   const runtimeStack = [
     { label: "State loop", value: runtimeState, detail: `${run.steps.filter((step) => step.state === "done").length}/${run.steps.length} steps` },
     { label: "Memory", value: `${run.log.length} records`, detail: "user · agent · observe" },
@@ -148,6 +185,22 @@ export default function RunWorkspace({
           </section>
         ) : null}
 
+        <section className={`execution-health ${health.tone}`} aria-label="Execution health">
+          <div>
+            <span>실행 건강</span>
+            <strong>{health.label}</strong>
+            <small>{health.detail}</small>
+          </div>
+          <dl>
+            {evidence.map((item) => (
+              <span key={item.label}>
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </span>
+            ))}
+          </dl>
+        </section>
+
         <div className="agent-run-metrics" aria-label="Run summary">
           <span>
             <strong>{run.command}</strong>
@@ -158,7 +211,7 @@ export default function RunWorkspace({
             <small>진행률</small>
           </span>
           <span>
-            <strong>{run.verification?.fallbackUsed ? "fallback" : run.verification?.llmUsed ? "live" : run.source ?? "local"}</strong>
+            <strong>{run.verification?.status ?? (run.verification?.fallbackUsed ? "degraded" : run.verification?.llmUsed ? "verified" : run.source ?? "local")}</strong>
             <small>실행 출처</small>
           </span>
         </div>
