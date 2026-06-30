@@ -23,8 +23,8 @@ class CodexBridge:
 
     The bridge is intentionally configuration-gated. It exposes whether Codex is
     installed and invokes `codex exec` only when NANUS_CODEX_ENABLED is an
-    explicit truthy value. Tests and demos therefore use deterministic fallback
-    unless the operator opts into local subprocess execution.
+    explicit truthy value. Local development starts with this enabled so normal
+    Nanus runs use Codex CLI instead of deterministic fallback.
     """
 
     def __init__(self, *, cwd: str | Path | None = None) -> None:
@@ -36,9 +36,10 @@ class CodexBridge:
         self.cwd = Path(cwd or os.environ.get("NANUS_CODEX_WORKDIR") or Path.cwd()).resolve()
         self.enabled_mode = os.environ.get("NANUS_CODEX_ENABLED", "").lower()
         self.enabled = self.enabled_mode in {"1", "true", "on", "yes", "live"}
-        self.timeout = float(os.environ.get("NANUS_CODEX_TIMEOUT", "45"))
+        self.timeout = float(os.environ.get("NANUS_CODEX_TIMEOUT", "120"))
         self.sandbox = os.environ.get("NANUS_CODEX_SANDBOX", "read-only")
-        self.model = os.environ.get("NANUS_CODEX_MODEL", "")
+        self.model = os.environ.get("NANUS_CODEX_MODEL", "gpt-5.4")
+        self.service_tier = os.environ.get("NANUS_CODEX_SERVICE_TIER", "fast")
 
     def status(self) -> dict[str, Any]:
         return {
@@ -50,7 +51,10 @@ class CodexBridge:
             "executable": self.executable,
             "cwd": str(self.cwd),
             "sandbox": self.sandbox,
-            "invocation": "codex exec --json --sandbox <mode> --ask-for-approval never --cd <workspace> -",
+            "timeout": self.timeout,
+            "model": self.model,
+            "serviceTier": self.service_tier,
+            "invocation": "codex exec -c service_tier=<tier> --json --sandbox <mode> --cd <workspace> --output-last-message <file> --model <model> -",
         }
 
     def should_handle(self, command: str, prompt: str, kind: str) -> bool:
@@ -70,11 +74,11 @@ class CodexBridge:
         command = [
             self.executable,
             "exec",
+            "-c",
+            f"service_tier=\"{self.service_tier}\"",
             "--json",
             "--sandbox",
             self.sandbox,
-            "--ask-for-approval",
-            "never",
             "--cd",
             str(self.cwd),
             "--output-last-message",
@@ -86,7 +90,8 @@ class CodexBridge:
 
         safe_prompt = (
             "You are connected from the Nanus backend Codex bridge. "
-            "Execute the user task inside the configured sandbox. "
+            "Execute the user task inside the configured sandbox when execution is needed. "
+            "For plain chat, writing, planning, or status questions, answer directly without running shell commands. "
             "Make workspace edits only when the sandbox permits them and the task requires code changes. "
             "Do not perform destructive actions; finish with a concise execution summary.\n\n"
             f"User task:\n{prompt}\n"
@@ -97,6 +102,8 @@ class CodexBridge:
                 command,
                 input=safe_prompt,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 timeout=self.timeout,
                 cwd=self.cwd,

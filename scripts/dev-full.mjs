@@ -34,7 +34,10 @@ function shutdown(code = 0) {
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
-start(node, ["scripts/backend.mjs", "dev"]);
+start(node, ["scripts/backend.mjs", "dev"], {
+  NANUS_CODEX_ENABLED: process.env.NANUS_CODEX_ENABLED || "true",
+  NANUS_CODEX_SANDBOX: process.env.NANUS_CODEX_SANDBOX || "read-only",
+});
 start(npm, ["run", "dev"], {
   VITE_NANUS_BACKEND_AUTO: "true",
   VITE_NANUS_RESTORE_BACKEND: "true",

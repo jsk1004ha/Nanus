@@ -232,36 +232,54 @@ class ExecutionEngine:
         prompt = run.get("prompt") or run.get("command") or run.get("title") or ""
         command = run.get("command", "/run")
         kind = run.get("kind", "general")
-        if self.codex.should_handle(command, prompt, kind):
-            codex_result = await self.codex.run(prompt)
-            return {
-                "finalAnswer": codex_result.text,
-                "resultType": "code_patch" if codex_result.live else "code_summary",
-                "verification": {
-                    "backendUsed": True,
-                    "llmUsed": codex_result.live,
-                    "fallbackUsed": not codex_result.live,
-                    "errors": [],
-                    "warnings": [] if codex_result.live else ["Codex live 실행 대신 deterministic fallback을 사용했습니다."],
-                },
-                "logs": [
-                    f"Codex Bridge: {'live codex exec' if codex_result.live else 'deterministic fallback'}",
-                    *( [f"Codex Bridge note: {codex_result.error}"] if codex_result.error else [] ),
-                ],
-                "artifacts": [
-                    {
-                        "id": f"codex-{run['id'][:8]}",
-                        "title": f"{run['title']} Codex 결과",
-                        "type": "codex-summary",
-                        "content": {"text": codex_result.text, "live": codex_result.live, "command": codex_result.command},
-                    }
-                ],
-            }
+        if self.codex.should_handle(command, prompt, kind) or (self.codex.enabled and kind != "deck"):
+            return await self._codex_adapter_result(run, prompt, kind)
         if kind == "writing":
             return await writing_advice(prompt, self.llm)
         if command in {"/deck-from-brief", "/artifact-studio"} or kind == "deck":
             return await deck_from_brief(prompt, self.llm)
         return await generic_llm_result(prompt, self.llm)
+
+    async def _codex_adapter_result(self, run: dict[str, Any], prompt: str, kind: str) -> dict[str, Any]:
+        task_prompt = prompt or run.get("title") or run.get("command") or "Nanus task"
+        if kind == "writing":
+            task_prompt = (
+                "한국어 보고서 작성 코치로 답변하세요. 전체 진단, 섹션별 보강 방향, 바로 붙여넣을 수 있는 추가 문단 예시, "
+                "피해야 할 방식을 포함하세요.\n\n"
+                f"사용자 요청:\n{task_prompt}"
+            )
+        elif kind not in {"app", "site"}:
+            task_prompt = (
+                "Nanus assistant로서 사용자의 요청에 바로 도움이 되는 한국어 최종 답변을 작성하세요. "
+                "필요하면 작업 계획과 다음 행동을 짧게 포함하되, 실제 파일 변경이 필요 없는 경우 변경하지 마세요.\n\n"
+                f"사용자 요청:\n{task_prompt}"
+            )
+        codex_result = await self.codex.run(task_prompt)
+        result_type = "code_patch" if codex_result.live and kind in {"app", "site"} else "codex_answer"
+        artifact_type = "codex-summary" if kind in {"app", "site"} else "assistant-answer"
+        return {
+            "finalAnswer": codex_result.text,
+            "resultType": result_type,
+            "verification": {
+                "backendUsed": True,
+                "llmUsed": codex_result.live,
+                "fallbackUsed": not codex_result.live,
+                "errors": [],
+                "warnings": [] if codex_result.live else ["Codex live 실행 대신 deterministic fallback을 사용했습니다."],
+            },
+            "logs": [
+                f"Codex Bridge: {'live codex exec' if codex_result.live else 'deterministic fallback'}",
+                *( [f"Codex Bridge note: {codex_result.error}"] if codex_result.error else [] ),
+            ],
+            "artifacts": [
+                {
+                    "id": f"codex-{run['id'][:8]}",
+                    "title": f"{run['title']} Codex 결과",
+                    "type": artifact_type,
+                    "content": {"text": codex_result.text, "live": codex_result.live, "command": codex_result.command},
+                }
+            ],
+        }
 
     def _persist_run(self, run: dict[str, Any]) -> None:
         self.store.save_run(run)

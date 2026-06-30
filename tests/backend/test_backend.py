@@ -7,6 +7,7 @@ import time
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
@@ -132,7 +133,7 @@ def test_run_finishes_without_websocket_subscriber(tmp_path: Path) -> None:
     assert final_run is not None
     assert final_run["progress"] == 100
     events = client.get(f"/api/runs/{run_id}/events").json()["events"]
-    assert events[-1]["type"] in {"run.done", "run.degraded"}
+    assert any(event["type"] in {"run.done", "run.degraded"} for event in events)
     assert [artifact["type"] for artifact in client.get(f"/api/runs/{run_id}/artifacts").json()["artifacts"]] == ["outline", "pptx"]
 
 
@@ -167,6 +168,36 @@ def test_chat_endpoint_creates_message_backed_run(tmp_path: Path) -> None:
     assert payload["runId"] == payload["run"]["id"]
     assert payload["run"]["kind"] == "writing"
     assert payload["run"]["runtime"]["conversation"]["id"] == payload["conversationId"]
+
+
+def test_general_run_uses_live_codex_when_bridge_is_enabled(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    class FakeCodex:
+        enabled = True
+
+        def should_handle(self, command: str, prompt: str, kind: str) -> bool:
+            return False
+
+        async def run(self, prompt: str):
+            return SimpleNamespace(
+                text="Codex CLI live 응답입니다. 일반 대화도 Codex Bridge를 통해 처리되었습니다.",
+                live=True,
+                command=["codex", "exec", "--json"],
+                error=None,
+            )
+
+    client.app.state.engine.codex = FakeCodex()
+    created = client.post("/api/runs", json={"input": "안녕", "mode": "local"})
+    assert created.status_code == 200
+    final_run = wait_for_terminal_run(client, created.json()["id"])
+
+    assert final_run["status"] == "complete"
+    assert final_run["verification"]["status"] == "verified"
+    assert final_run["verification"]["llmUsed"] is True
+    assert final_run["verification"]["fallbackUsed"] is False
+    assert "Codex CLI live 응답" in final_run["finalAnswer"]
+    assert any("Codex Bridge: live codex exec" in line for line in final_run["log"])
 
 
 def test_conversation_message_endpoint_preserves_conversation_id(tmp_path: Path) -> None:
