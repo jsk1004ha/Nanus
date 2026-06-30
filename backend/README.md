@@ -14,9 +14,11 @@ Runtime knobs are documented in `.env.example`.
 
 ## Runtime behavior
 
-- `POST /api/runs` persists a run to SQLite.
+- `POST /api/runs` persists a queued run, enqueues a durable background job, and returns immediately.
 - `GET /api/runs`, `GET /api/runs/{id}`, `GET /api/runs/{id}/artifacts`, and `GET /api/runs/{id}/events` read persisted data.
-- `WS /ws/run/{id}` streams run snapshots, artifact events, and `run.done`.
+- `GET /api/runs/{id}/events?after=<seq>` returns append-only events after a known event id.
+- `WS /ws/run/{id}` subscribes to persisted events only; it does not trigger execution.
+- `POST /api/runs/{id}/pause`, `/resume`, and `/cancel` update run/job state and append audit events.
 - `/api/tools`, `/api/mcp/tools`, and `/mcp` expose Python skill/tool/Codex connections.
 - `/deck-from-brief` runs a Python skill and emits `outline` + `pptx` artifacts.
 - If `ANTHROPIC_API_KEY` is set, Anthropic Messages API is used; without it, deterministic fallback output keeps local tests offline and repeatable.

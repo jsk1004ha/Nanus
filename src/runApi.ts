@@ -12,6 +12,10 @@ function asBackendRun(run: ActiveRun): ActiveRun {
   return { ...run, source: "backend" };
 }
 
+function isTerminalRun(run: ActiveRun) {
+  return run.status === "complete" || run.status === "failed" || run.status === "cancelled";
+}
+
 async function createBackendRun(input: string, mode: WorkspaceMode): Promise<ActiveRun> {
   const response = await fetch(backendApiUrl("/api/runs"), {
     method: "POST",
@@ -31,7 +35,7 @@ function subscribeToRun(runId: string, onRun: (run: ActiveRun) => void, onFallba
       const payload = JSON.parse(event.data as string) as BackendRunEvent;
       const run = payload.payload?.run ?? payload.run;
       if (run) onRun(asBackendRun(run));
-      if (payload.type === "run.done" || run?.status === "complete") finished = true;
+      if (payload.type === "run.done" || (run && isTerminalRun(run))) finished = true;
       if (payload.type === "error") onFallback(payload.payload?.message ?? payload.message ?? "stream error");
     } catch {
       onFallback("invalid WebSocket event");
@@ -62,10 +66,30 @@ export async function restoreLatestBackendRun(onRun: (run: ActiveRun) => void) {
   const latest = runs[0];
   if (!latest) return null;
   onRun(latest);
-  if (latest.status === "running" || latest.status === "queued") {
+  if (!isTerminalRun(latest)) {
     return subscribeToRun(latest.id, onRun, (reason) => onRun({ ...latest, log: [...latest.log, `백엔드 재연결 실패: ${reason}`] }));
   }
   return null;
+}
+
+export async function setBackendRunPaused(runId: string, paused: boolean): Promise<ActiveRun> {
+  if (!backendEnabled) throw new Error("backend disabled");
+  const response = await fetch(backendApiUrl(`/api/runs/${encodeURIComponent(runId)}/${paused ? "pause" : "resume"}`), {
+    method: "POST",
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const payload = (await response.json()) as { run: ActiveRun };
+  return asBackendRun(payload.run);
+}
+
+export async function cancelBackendRun(runId: string): Promise<ActiveRun> {
+  if (!backendEnabled) throw new Error("backend disabled");
+  const response = await fetch(backendApiUrl(`/api/runs/${encodeURIComponent(runId)}/cancel`), {
+    method: "POST",
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const payload = (await response.json()) as { run: ActiveRun };
+  return asBackendRun(payload.run);
 }
 
 export async function connectBackendRun(input: string, mode: WorkspaceMode, localRun: ActiveRun, onRun: (run: ActiveRun) => void) {

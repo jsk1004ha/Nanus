@@ -25,6 +25,9 @@ export default function OperationStage({
   onTogglePause: () => void;
   onRunChange: Dispatch<SetStateAction<ActiveRun | null>>;
 }) {
+  const effectivelyPaused = runPaused || activeRun.status === "paused";
+  const terminal = activeRun.status === "complete" || activeRun.status === "failed" || activeRun.status === "cancelled";
+
   return (
     <section className="operation-stage" aria-label="Nanus operation workspace">
       <div className="operation-bar">
@@ -87,10 +90,10 @@ export default function OperationStage({
             <button
               className="ghost-tool"
               type="button"
-              aria-label={runPaused ? "실행 재개" : "실행 일시정지"}
-              title={runPaused ? "실행 재개" : "실행 일시정지"}
+              aria-label={effectivelyPaused ? "실행 재개" : "실행 일시정지"}
+              title={effectivelyPaused ? "실행 재개" : "실행 일시정지"}
               onClick={onTogglePause}
-              disabled={activeRun.status === "complete"}
+              disabled={terminal}
             >
               <Activity />
             </button>

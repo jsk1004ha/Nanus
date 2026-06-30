@@ -115,7 +115,7 @@ export interface ActiveRun {
   prompt: string;
   command: string;
   kind: RunKind;
-  status: "queued" | "running" | "paused" | "complete";
+  status: "queued" | "running" | "waiting" | "paused" | "failed" | "complete" | "cancelled";
   worker: string;
   progress: number;
   startedAt: string;

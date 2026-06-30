@@ -100,14 +100,28 @@
   color: var(--primary);
 }
 
+.run-badge.queued,
+.run-badge.waiting {
+  border-color: color-mix(in srgb, var(--warning) 48%, var(--line));
+  color: var(--warning);
+}
+
 .run-badge.complete {
   border-color: color-mix(in srgb, var(--success) 48%, var(--line));
   color: var(--success);
 }
 
-.run-badge.paused {
+.run-badge.paused,
+.run-badge.failed,
+.run-badge.cancelled {
   border-color: color-mix(in srgb, var(--warning) 48%, var(--line));
   color: var(--warning);
+}
+
+.run-badge.failed,
+.run-badge.cancelled {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--line));
+  color: var(--danger);
 }
 
 .agent-run-copy {

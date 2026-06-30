@@ -19,7 +19,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  Settings,
   ShieldCheck,
   Sparkles,
   Sun,
@@ -333,7 +332,7 @@ function MainStage({
             {theme === "dark" ? <Sun /> : <Moon />}
           </IconButton>
           <IconButton label="설정" onClick={() => onOpenPanel("settings")}>
-            <Settings />
+            <MoreHorizontal />
           </IconButton>
           <button className="credit-pill" type="button" onClick={() => onOpenPanel("billing")}>
             <Sparkles />
@@ -793,13 +792,25 @@ export function App() {
   }
 
   function toggleRunPause() {
-    if (!activeRun || activeRun.status !== "running") {
-      notify("일시정지 불가", activeRun?.status === "complete" ? "완료된 런입니다." : "실행 중인 작업이 없습니다.", "warning");
+    if (!activeRun || activeRun.status === "complete" || activeRun.status === "failed" || activeRun.status === "cancelled") {
+      notify("일시정지 불가", activeRun ? "종료된 런입니다." : "실행 중인 작업이 없습니다.", "warning");
       return;
     }
-    const nextPaused = !runPaused;
+    const nextPaused = !(runPaused || activeRun.status === "paused");
     setRunPaused(nextPaused);
     notify(nextPaused ? "실행 일시정지" : "실행 재개", nextPaused ? "현재 단계 대기" : "타임라인 재개", "success");
+    if (activeRun.source === "backend") {
+      void import("./runApi")
+        .then(({ setBackendRunPaused }) => setBackendRunPaused(activeRun.id, nextPaused))
+        .then((run) => {
+          setActiveRun(run);
+          setRunPaused(run.status === "paused");
+        })
+        .catch(() => {
+          setRunPaused(!nextPaused);
+          notify("백엔드 상태 변경 실패", "다시 시도하세요.", "warning");
+        });
+    }
   }
 
   function runCommand(value: string) {

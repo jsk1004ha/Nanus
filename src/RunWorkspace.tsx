@@ -32,10 +32,24 @@ export default function RunWorkspace({
   }, [onRunChange, paused, run.id, run.source, run.status]);
 
   const activeStep = run.steps.find((step) => step.state === "active");
-  const statusLabel = paused ? "일시정지됨" : run.status === "complete" ? "완료됨" : "실행 중";
+  const terminal = run.status === "complete" || run.status === "failed" || run.status === "cancelled";
+  const effectivelyPaused = paused || run.status === "paused";
+  const statusLabel = effectivelyPaused
+    ? "일시정지됨"
+    : run.status === "complete"
+      ? "완료됨"
+      : run.status === "queued"
+        ? "대기 중"
+        : run.status === "waiting"
+          ? "승인 대기"
+          : run.status === "failed"
+            ? "실패"
+            : run.status === "cancelled"
+              ? "취소됨"
+              : "실행 중";
   const statusClass = paused ? "paused" : run.status;
   const visibleLogs = run.log.slice(-6);
-  const runtimeState = paused ? "PAUSED" : run.status === "complete" ? "FINISHED" : "RUNNING";
+  const runtimeState = effectivelyPaused ? "PAUSED" : run.status === "complete" ? "FINISHED" : run.status.toUpperCase();
   const runtimeStack = [
     { label: "State loop", value: runtimeState, detail: `${run.steps.filter((step) => step.state === "done").length}/${run.steps.length} steps` },
     { label: "Memory", value: `${run.log.length} records`, detail: "user · agent · observe" },
@@ -69,7 +83,11 @@ export default function RunWorkspace({
           <p>
             {run.status === "complete"
               ? `${commandLabels[run.kind]} 결과를 만들고 검증 대기 산출물을 정리했습니다.`
-              : paused
+              : run.status === "failed"
+                ? "실행 중 오류가 발생했습니다. 실행 기록에서 로그를 확인하세요."
+                : run.status === "cancelled"
+                  ? "사용자 요청으로 실행을 취소했습니다."
+                  : effectivelyPaused
                 ? `${activeStep?.title ?? "현재 단계"}에서 실행을 멈춰 두었습니다.`
                 : `${activeStep?.title ?? "작업 준비"} 단계가 진행 중입니다.`}
           </p>
@@ -142,9 +160,9 @@ export default function RunWorkspace({
         </div>
 
         <div className="active-run-actions">
-          <button type="button" onClick={onTogglePause} disabled={run.status === "complete"}>
+          <button type="button" onClick={onTogglePause} disabled={terminal}>
             <Activity />
-            {paused ? "재개" : "일시정지"}
+            {effectivelyPaused ? "재개" : "일시정지"}
           </button>
           <button type="button" className="secondary" onClick={() => onOpenPanel("run")}>
             실행 기록

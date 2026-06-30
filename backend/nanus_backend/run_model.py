@@ -155,6 +155,7 @@ def create_run(input_text: str, *, mode: str = "local") -> dict[str, Any]:
     kind = detect_run_kind(command, prompt)
     title = summarize_run_title(prompt, command, kind)
     steps = build_run_steps(kind, prompt, command)
+    queued_steps = [{**step, "state": "pending"} for step in steps]
     now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
     return {
@@ -163,16 +164,15 @@ def create_run(input_text: str, *, mode: str = "local") -> dict[str, Any]:
         "prompt": prompt,
         "command": command,
         "kind": kind,
-        "status": "running",
+        "status": "queued",
         "worker": RUN_WORKERS[kind],
-        "progress": 34,
+        "progress": 0,
         "startedAt": datetime.now().strftime("%H:%M"),
-        "steps": steps,
+        "steps": queued_steps,
         "artifacts": build_artifacts(kind, title),
         "log": [
             f"{command} 명령을 수신했습니다.",
-            f"{COMMAND_LABELS[kind]} 실행 그래프를 구성했습니다.",
-            f"현재 단계: {next((step['title'] for step in steps if step['state'] == 'active'), steps[0]['title'])}",
+            f"{COMMAND_LABELS[kind]} 실행 그래프를 대기열에 등록했습니다.",
         ],
         "runtime": {"source": "backend", "mode": mode, "createdAt": now},
     }

@@ -80,6 +80,16 @@ class RunStore:
                     payload_json text not null,
                     created_at real not null
                 );
+                create table if not exists jobs (
+                    id text primary key,
+                    run_id text not null references runs(id) on delete cascade,
+                    status text not null,
+                    attempts integer not null,
+                    error text,
+                    created_at real not null,
+                    updated_at real not null,
+                    claimed_at real
+                );
                 """
             )
 
@@ -138,6 +148,67 @@ class RunStore:
             rows = conn.execute("select * from runs order by created_at desc").fetchall()
         return [self._row_to_run(row) for row in rows]
 
+    def enqueue_job(self, run_id: str, job_id: str) -> dict[str, Any]:
+        now = time()
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                """
+                insert into jobs (id, run_id, status, attempts, error, created_at, updated_at, claimed_at)
+                values (?, ?, 'queued', 0, null, ?, ?, null)
+                on conflict(id) do nothing
+                """,
+                (job_id, run_id, now, now),
+            )
+        job = self.get_job(job_id)
+        if not job:
+            raise RuntimeError(f"Job {job_id} was not persisted")
+        return job
+
+    def claim_job(self, job_id: str) -> dict[str, Any] | None:
+        now = time()
+        with self._lock, self._connection() as conn:
+            row = conn.execute("select * from jobs where id = ?", (job_id,)).fetchone()
+            if not row or row["status"] in {"complete", "failed", "cancelled"}:
+                return self._row_to_job(row) if row else None
+            conn.execute(
+                """
+                update jobs
+                set status = 'running',
+                    attempts = attempts + 1,
+                    updated_at = ?,
+                    claimed_at = ?
+                where id = ?
+                """,
+                (now, now, job_id),
+            )
+            row = conn.execute("select * from jobs where id = ?", (job_id,)).fetchone()
+        return self._row_to_job(row) if row else None
+
+    def update_job(self, job_id: str, status: str, *, error: str | None = None) -> dict[str, Any] | None:
+        now = time()
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                "update jobs set status = ?, error = ?, updated_at = ? where id = ?",
+                (status, error, now, job_id),
+            )
+            row = conn.execute("select * from jobs where id = ?", (job_id,)).fetchone()
+        return self._row_to_job(row) if row else None
+
+    def get_job(self, job_id: str) -> dict[str, Any] | None:
+        with self._lock, self._connection() as conn:
+            row = conn.execute("select * from jobs where id = ?", (job_id,)).fetchone()
+        return self._row_to_job(row) if row else None
+
+    def get_job_for_run(self, run_id: str) -> dict[str, Any] | None:
+        with self._lock, self._connection() as conn:
+            row = conn.execute("select * from jobs where run_id = ? order by created_at desc limit 1", (run_id,)).fetchone()
+        return self._row_to_job(row) if row else None
+
+    def list_recoverable_jobs(self) -> list[dict[str, Any]]:
+        with self._lock, self._connection() as conn:
+            rows = conn.execute("select * from jobs where status in ('queued', 'running') order by created_at").fetchall()
+        return [self._row_to_job(row) for row in rows]
+
     def add_artifact(self, run_id: str, artifact: dict[str, Any]) -> dict[str, Any]:
         artifact_id = artifact.get("id") or f"{run_id}-{artifact.get('type', 'artifact')}"
         stored = {**artifact, "id": artifact_id}
@@ -185,9 +256,12 @@ class RunStore:
             event_id = int(cursor.lastrowid)
         return {"id": event_id, "runId": run_id, "type": event_type, "payload": payload, "createdAt": created_at}
 
-    def list_events(self, run_id: str) -> list[dict[str, Any]]:
+    def list_events(self, run_id: str, *, after: int = 0) -> list[dict[str, Any]]:
         with self._lock, self._connection() as conn:
-            rows = conn.execute("select * from events where run_id = ? order by id", (run_id,)).fetchall()
+            rows = conn.execute(
+                "select * from events where run_id = ? and id > ? order by id",
+                (run_id, after),
+            ).fetchall()
         return [
             {
                 "id": row["id"],
@@ -214,6 +288,18 @@ class RunStore:
             "artifacts": _json_loads(row["artifacts_json"], []),
             "log": _json_loads(row["log_json"], []),
             "runtime": _json_loads(row["runtime_json"], {}),
+        }
+
+    def _row_to_job(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "runId": row["run_id"],
+            "status": row["status"],
+            "attempts": row["attempts"],
+            "error": row["error"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+            "claimedAt": row["claimed_at"],
         }
 
     def _row_to_artifact(self, row: sqlite3.Row) -> dict[str, Any]:

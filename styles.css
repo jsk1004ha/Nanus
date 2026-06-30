@@ -1087,9 +1087,16 @@ h1 {
 }
 
 .status-dot.paused,
-.status-dot.queued {
+.status-dot.queued,
+.status-dot.waiting {
   background: var(--warning);
   box-shadow: 0 0 0 5px color-mix(in srgb, var(--warning) 18%, transparent);
+}
+
+.status-dot.failed,
+.status-dot.cancelled {
+  background: var(--danger);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger) 18%, transparent);
 }
 
 .run-progress {

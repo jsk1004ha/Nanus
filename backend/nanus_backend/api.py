@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import json
@@ -18,6 +19,7 @@ from .codex_bridge import CodexBridge
 from .execution import ExecutionEngine
 from .llm import AnthropicMessagesClient
 from .run_model import create_run
+from .supervisor import JobSupervisor
 from .tooling import deck_from_brief, generic_llm_result, list_skill_tools
 from .storage import RunStore
 
@@ -61,10 +63,19 @@ DEFAULT_CORS_ORIGINS = (
     "http://localhost:4173",
 )
 
+TERMINAL_RUN_STATUSES = {"complete", "failed", "cancelled"}
+TERMINAL_EVENT_TYPES = {"run.done", "run.failed", "run.cancelled"}
+
 
 def _cors_origins() -> list[str]:
     configured = [origin.strip() for origin in os.environ.get("NANUS_CORS_ORIGINS", "").split(",") if origin.strip()]
     return configured or list(DEFAULT_CORS_ORIGINS)
+
+
+def _append_run_log(run: dict[str, Any], line: str) -> None:
+    log = run.setdefault("log", [])
+    if line not in log:
+        log.append(line)
 
 
 def create_app(*, db_path: str | Path | None = None) -> FastAPI:
@@ -72,12 +83,14 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
     llm = AnthropicMessagesClient()
     codex = CodexBridge()
     engine = ExecutionEngine(store, llm=llm, codex=codex)
+    supervisor = JobSupervisor(store, engine)
 
     app = FastAPI(title="Nanus Execution Backend", version="0.1.0")
     app.state.store = store
     app.state.llm = llm
     app.state.codex = codex
     app.state.engine = engine
+    app.state.supervisor = supervisor
 
     app.add_middleware(
         CORSMiddleware,
@@ -87,9 +100,23 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.on_event("startup")
+    async def recover_background_jobs() -> None:
+        supervisor.recover_jobs()
+
+    @app.on_event("shutdown")
+    async def shutdown_background_jobs() -> None:
+        await supervisor.shutdown()
+
     @app.get("/health")
     def health() -> dict[str, Any]:
-        return {"ok": True, "database": str(store.db_path), "anthropic": llm.status(), "codex": codex.status()}
+        return {
+            "ok": True,
+            "database": str(store.db_path),
+            "anthropic": llm.status(),
+            "codex": codex.status(),
+            "activeJobs": supervisor.active_job_ids(),
+        }
 
     @app.get("/api/tools")
     def tools() -> dict[str, Any]:
@@ -159,10 +186,14 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
         return {"jsonrpc": request.jsonrpc, "id": request.id, "result": result}
 
     @app.post("/api/runs")
-    def create_backend_run(payload: RunCreateRequest) -> dict[str, Any]:
+    async def create_backend_run(payload: RunCreateRequest) -> dict[str, Any]:
         run = create_run(payload.input, mode=payload.mode)
         store.save_run(run)
+        job = supervisor.enqueue_run(run["id"])
+        run["runtime"]["jobId"] = job["id"]
+        store.save_run(run)
         store.add_event(run["id"], "run.created", {"run": run})
+        store.add_event(run["id"], "run.queued", {"run": run, "job": job})
         return run
 
     @app.get("/api/runs")
@@ -210,21 +241,88 @@ def create_app(*, db_path: str | Path | None = None) -> FastAPI:
         return Response(content=data, media_type=media_type, headers=headers)
 
     @app.get("/api/runs/{run_id}/events")
-    def get_events(run_id: str) -> dict[str, Any]:
+    def get_events(run_id: str, after: int = 0) -> dict[str, Any]:
         if not store.get_run(run_id):
             raise HTTPException(status_code=404, detail="Run not found")
-        return {"events": store.list_events(run_id)}
+        return {"events": store.list_events(run_id, after=after)}
+
+    @app.post("/api/runs/{run_id}/pause")
+    def pause_run(run_id: str) -> dict[str, Any]:
+        run = store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run["status"] in TERMINAL_RUN_STATUSES:
+            raise HTTPException(status_code=409, detail=f"Run is already {run['status']}")
+        run["status"] = "paused"
+        _append_run_log(run, "사용자 요청으로 실행을 일시정지했습니다.")
+        store.save_run(run)
+        job = store.get_job_for_run(run_id)
+        if job:
+            store.update_job(str(job["id"]), "paused")
+        event = store.add_event(run_id, "run.paused", {"run": run})
+        return {"run": run, "event": event}
+
+    @app.post("/api/runs/{run_id}/resume")
+    def resume_run(run_id: str) -> dict[str, Any]:
+        run = store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run["status"] in TERMINAL_RUN_STATUSES:
+            raise HTTPException(status_code=409, detail=f"Run is already {run['status']}")
+        run["status"] = "running"
+        _append_run_log(run, "사용자 요청으로 실행을 재개했습니다.")
+        store.save_run(run)
+        job = store.get_job_for_run(run_id)
+        if job:
+            store.update_job(str(job["id"]), "running")
+            supervisor.start_job(str(job["id"]))
+        event = store.add_event(run_id, "run.resumed", {"run": run})
+        return {"run": run, "event": event}
+
+    @app.post("/api/runs/{run_id}/cancel")
+    def cancel_run(run_id: str) -> dict[str, Any]:
+        run = store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run["status"] in TERMINAL_RUN_STATUSES:
+            raise HTTPException(status_code=409, detail=f"Run is already {run['status']}")
+        run["status"] = "cancelled"
+        _append_run_log(run, "사용자 요청으로 실행을 취소했습니다.")
+        store.save_run(run)
+        job = store.get_job_for_run(run_id)
+        if job:
+            store.update_job(str(job["id"]), "cancelled")
+        event = store.add_event(run_id, "run.cancelled", {"run": run})
+        return {"run": run, "event": event}
 
     @app.websocket("/ws/run/{run_id}")
     async def run_stream(websocket: WebSocket, run_id: str) -> None:
         await websocket.accept()
-        if not store.get_run(run_id):
+        run = store.get_run(run_id)
+        if not run:
             await websocket.send_json({"type": "error", "payload": {"message": "Run not found"}})
             await websocket.close(code=4404)
             return
+        raw_after = websocket.query_params.get("after", "0")
         try:
-            async for event in engine.stream_run(run_id):
-                await websocket.send_json(event)
+            last_event_id = max(0, int(raw_after))
+        except ValueError:
+            last_event_id = 0
+        try:
+            await websocket.send_json({"type": "run.snapshot", "payload": {"run": run}})
+            while True:
+                events = store.list_events(run_id, after=last_event_id)
+                for event in events:
+                    await websocket.send_json(event)
+                    last_event_id = int(event["id"])
+                    if event["type"] in TERMINAL_EVENT_TYPES:
+                        return
+                run = store.get_run(run_id)
+                if run and run["status"] in TERMINAL_RUN_STATUSES:
+                    event_type = "run.done" if run["status"] == "complete" else f"run.{run['status']}"
+                    await websocket.send_json({"type": event_type, "payload": {"run": run}})
+                    return
+                await asyncio.sleep(0.05)
         except WebSocketDisconnect:
             return
 
