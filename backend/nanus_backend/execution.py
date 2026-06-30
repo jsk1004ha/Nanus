@@ -66,7 +66,7 @@ def _verify(result: dict[str, Any], final_answer: str, artifacts: list[dict[str,
         "artifactIntegrityOk": artifact_report["ok"],
         "artifactChecks": artifact_report["checks"],
         "traceClosed": True,
-        "streaming": True,
+        "streaming": bool(result.get("streamed", False)),
         "errors": errors,
         "warnings": warnings,
     }
@@ -126,6 +126,7 @@ class ExecutionEngine:
             runtime = run.setdefault("runtime", {})
             runtime["agentLoop"] = []
             runtime["subtasks"] = _subtasks(str(run.get("kind") or "general"))
+            runtime["streamedDeltaCount"] = 0
             _append_log(run, "백그라운드 작업자가 실행을 시작했습니다.")
             _append_log(run, "Agent runtime started.")
             self._update_message(run, status="running")
@@ -139,7 +140,13 @@ class ExecutionEngine:
             run = await self._phase(run_id, job_id, "execute", "Tool Executor", "선택한 도구와 산출물 생성기를 실행합니다.", min(1, len(run.get("steps", [])) - 1))
             if not run:
                 return
-            result = await self._execute_adapter(run)
+
+            previous_sink = self.llm.delta_sink
+            self.llm.delta_sink = self._live_delta_sink(run_id)
+            try:
+                result = await self._execute_adapter(run)
+            finally:
+                self.llm.delta_sink = previous_sink
             final = _answer(result)
             artifacts = [artifact for artifact in result.get("artifacts", []) if isinstance(artifact, dict)]
             run = self.store.get_run(run_id) or run
@@ -147,7 +154,8 @@ class ExecutionEngine:
             run["verification"] = _verify(result, final, artifacts)
             if run["verification"]["status"] == "failed":
                 raise RuntimeError("; ".join(run["verification"]["errors"]))
-            await self._stream_answer(run, final)
+            if int(run.get("runtime", {}).get("streamedDeltaCount", 0)) == 0:
+                await self._stream_answer(run, final)
             run = self.store.get_run(run_id) or run
             run["finalAnswer"] = final
             self._update_message(run, content=final, status="degraded" if run["verification"]["status"] == "degraded" else "complete")
@@ -211,6 +219,22 @@ class ExecutionEngine:
         result = await self.codex.run(prompt or run.get("title") or "Nanus task")
         return {"finalAnswer": result.text, "resultType": "code_patch" if result.live and kind in {"app", "site"} else "codex_answer", "verification": {"backendUsed": True, "llmUsed": result.live, "fallbackUsed": not result.live, "errors": [], "warnings": [] if result.live else ["Codex fallback used"]}, "logs": [f"Codex Bridge: {'live codex exec' if result.live else 'deterministic fallback'}"], "artifacts": [{"id": f"codex-{run['id'][:8]}", "title": f"{run['title']} Codex 결과", "type": "codex-summary", "content": {"text": result.text, "live": result.live, "command": result.command}}]}
 
+    def _live_delta_sink(self, run_id: str):
+        async def sink(delta: str) -> None:
+            current = self.store.get_run(run_id)
+            if not current or current.get("status") == "cancelled":
+                return
+            runtime = current.setdefault("runtime", {})
+            runtime["streamedDeltaCount"] = int(runtime.get("streamedDeltaCount", 0)) + 1
+            partial = f"{current.get('finalAnswer', '')}{delta}"
+            current["finalAnswer"] = partial
+            self.store.save_run(current)
+            message_id = _assistant_message_id(current)
+            if message_id:
+                self.store.update_message(message_id, content=partial, status="streaming")
+            self._event(run_id, "assistant.message.delta", {"run": current, "delta": delta, "content": partial, "live": True, "index": runtime["streamedDeltaCount"]})
+        return sink
+
     async def _stream_answer(self, run: dict[str, Any], final_answer: str) -> None:
         run_id = str(run["id"])
         message_id = _assistant_message_id(run)
@@ -224,7 +248,7 @@ class ExecutionEngine:
             self.store.save_run(current)
             if message_id:
                 self.store.update_message(message_id, content=partial, status="streaming")
-            self._event(run_id, "assistant.message.delta", {"run": current, "delta": chunk, "content": partial, "index": index})
+            self._event(run_id, "assistant.message.delta", {"run": current, "delta": chunk, "content": partial, "live": False, "index": index})
             await asyncio.sleep(0.01)
 
     def _mark_subtasks(self, run: dict[str, Any], status: str) -> None:
