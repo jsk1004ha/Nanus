@@ -1,13 +1,14 @@
 .operation-stage {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   min-height: calc(100vh - 52px);
   padding: 12px clamp(16px, 4vw, 44px) 14px;
 }
 
 .operation-bar,
+.operation-cockpit,
 .operation-composer {
-  width: min(100%, 760px);
+  width: min(100%, 820px);
   margin: 0 auto;
 }
 
@@ -65,6 +66,151 @@
   color: var(--text);
 }
 
+.operation-cockpit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  margin-top: 8px;
+  margin-bottom: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--line));
+  border-radius: var(--radius-xl);
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--primary) 18%, transparent), transparent 36%),
+    color-mix(in srgb, var(--surface) 82%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.operation-cockpit.verified {
+  border-color: color-mix(in srgb, var(--success) 42%, var(--line));
+}
+
+.operation-cockpit.degraded,
+.operation-cockpit.waiting {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--line));
+}
+
+.operation-cockpit.failed {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--line));
+}
+
+.operation-cockpit-main span,
+.operation-cockpit-main strong,
+.operation-cockpit-main p {
+  display: block;
+}
+
+.operation-cockpit-main span {
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 860;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.operation-cockpit-main strong {
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 860;
+}
+
+.operation-cockpit-main p {
+  max-width: 620px;
+  margin: 5px 0 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.operation-cockpit-status {
+  display: grid;
+  place-items: center;
+  align-self: start;
+  width: 64px;
+  min-height: 58px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-2) 84%, transparent);
+  color: var(--primary);
+}
+
+.operation-cockpit-status svg {
+  width: 20px;
+  height: 20px;
+}
+
+.operation-cockpit-status span {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.operation-lane-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.operation-lane-grid button {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+  min-height: 74px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-2) 78%, transparent);
+  color: var(--text);
+  text-align: left;
+}
+
+.operation-lane-grid button:hover {
+  border-color: color-mix(in srgb, var(--primary) 48%, var(--line));
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface-2));
+}
+
+.operation-lane-grid svg {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  color: var(--primary);
+}
+
+.operation-lane-grid small,
+.operation-lane-grid strong,
+.operation-lane-grid em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operation-lane-grid small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.operation-lane-grid strong {
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.operation-lane-grid em {
+  margin-top: 3px;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-style: normal;
+}
+
 .operation-thread {
   display: grid;
   align-content: start;
@@ -75,7 +221,7 @@
 }
 
 .operation-stage .active-run-workspace {
-  width: min(100%, 720px);
+  width: min(100%, 760px);
   margin-top: 0;
 }
 
@@ -125,6 +271,10 @@
     max-width: 48vw;
   }
 
+  .operation-lane-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .operation-composer {
     position: sticky;
     bottom: 78px;
@@ -136,7 +286,8 @@
     padding: 10px 10px 118px;
   }
 
-  .operation-bar {
+  .operation-bar,
+  .operation-cockpit {
     display: grid;
     gap: 10px;
   }
@@ -151,6 +302,17 @@
 
   .operation-bar-actions button {
     flex: 1 1 auto;
+  }
+
+  .operation-cockpit-status {
+    width: 100%;
+    min-height: 46px;
+    grid-template-columns: auto auto;
+    gap: 8px;
+  }
+
+  .operation-lane-grid {
+    grid-template-columns: 1fr;
   }
 
   .operation-thread {
