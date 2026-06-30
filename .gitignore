@@ -11,3 +11,7 @@ playwright-report/
 .omx/state/skill-active-state.json
 .omx/state/team-leader-nudge.json
 .omx/state/tmux-hook-state.json
+.omx/goals/
+.omx/state/productivity-engine/
+.omx/state/ultrawork.json
+.omx/ultragoal/

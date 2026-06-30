@@ -1,6 +1,14 @@
 import type { LucideIcon } from "lucide-react";
 
-export type ViewId = "home" | "agents" | "skills" | "schedule" | "library";
+export type ViewId = "home" | "agents" | "workbench" | "skills" | "schedule" | "library";
+
+export type ThemeMode = "dark" | "light";
+
+export type WorkspaceMode = "local" | "private";
+
+export type SkillTab = "recommended" | "installed" | "review";
+
+export type DensityMode = "comfortable" | "compact";
 
 export type SkillTrustLabel =
   | "nanus_official"
@@ -15,12 +23,14 @@ export type PanelId =
   | "run"
   | "settings"
   | "project"
+  | "workbench"
   | "agents"
   | "schedule"
   | "library"
   | "connections"
   | "billing"
-  | "notifications";
+  | "notifications"
+  | "productivity";
 
 export interface NavItem {
   id: ViewId;
@@ -79,7 +89,7 @@ export interface RunLedger {
   steps: RunStep[];
 }
 
-export type RunKind = "deck" | "site" | "app" | "design" | "schedule" | "library" | "agent" | "general";
+export type RunKind = "deck" | "site" | "app" | "design" | "research" | "schedule" | "library" | "agent" | "general";
 
 export interface ActiveRun {
   id: string;
@@ -98,4 +108,33 @@ export interface ActiveRun {
     type: string;
   }>;
   log: string[];
+}
+
+export interface ProductivityPlan {
+  title: string;
+  manualHours: number;
+  nanusHours: number;
+  savedHours: number;
+  automationScore: number;
+  leverageScore: number;
+  lanes: Array<{
+    id: string;
+    title: string;
+    owner: string;
+    detail: string;
+    minutes: number;
+  }>;
+  reusableSkills: Array<{
+    id: string;
+    name: string;
+    command: string;
+    payoff: string;
+  }>;
+  riskGates: Array<{
+    id: string;
+    label: string;
+    status: "ready" | "review" | "blocked";
+    detail: string;
+  }>;
+  nextActions: string[];
 }

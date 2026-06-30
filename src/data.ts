@@ -22,6 +22,7 @@ import type { NavItem, QuickAction, Recommendation, RunLedger, SkillPackage, Tas
 export const navItems: NavItem[] = [
   { id: "home", label: "새 작업", icon: SquarePen },
   { id: "agents", label: "에이전트", icon: ScanFace },
+  { id: "workbench", label: "워크벤치", icon: Activity },
   { id: "skills", label: "스킬", icon: Blocks },
   { id: "schedule", label: "예약됨", icon: Clock3 },
   { id: "library", label: "라이브러리", icon: Library },
@@ -30,7 +31,9 @@ export const navItems: NavItem[] = [
 export const mobileTabs = [
   { id: "home", label: "Chat", icon: MessageSquare },
   { id: "run", label: "Runs", icon: Activity },
+  { id: "workbench", label: "Work", icon: Activity },
   { id: "skills", label: "Skills", icon: Blocks },
+  { id: "productivity", label: "Engine", icon: Activity },
   { id: "files", label: "Files", icon: FolderOpen },
 ] as const;
 
@@ -120,6 +123,7 @@ export const quickActions: QuickAction[] = [
   { id: "site", label: "웹사이트 구축", command: "/site-builder 보고서 기반 웹사이트 구축", icon: CodeXml },
   { id: "desktop", label: "데스크톱 앱 개발", command: "/codex-build 데스크톱 앱 개발", icon: Laptop },
   { id: "design", label: "디자인", command: "/design-system 디자인 시스템 정리", icon: WandSparkles },
+  { id: "research", label: "조사", command: "/research-brief 근거", icon: ChartNoAxesCombined },
 ];
 
 export const runLedger: RunLedger = {

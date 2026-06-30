@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
+    "perf:budget": "node scripts/perf-budget.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {
