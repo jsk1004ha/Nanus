@@ -28,7 +28,7 @@ test("sending a short prompt starts a visible Manus-like execution", async ({ pa
   await expect(worklog.getByText("완료: 결과 작성")).toBeVisible();
   const artifactRegion = worklog.getByLabel("Run artifacts");
   await expect(artifactRegion.getByRole("button", { name: /온라인 열기/ }).first()).toBeVisible();
-  await expect(artifactRegion.getByText("다운로드").first()).toBeVisible();
+  await expect(artifactRegion.getByText("JSON 다운로드").first()).toBeVisible();
   const popupPromise = page.waitForEvent("popup");
   await artifactRegion.getByRole("button", { name: /온라인 열기/ }).first().click();
   const artifactPopup = await popupPromise;
@@ -78,6 +78,22 @@ test("new task starts unpaused after a paused run", async ({ page }) => {
   await expect.poll(async () => Number(await worklog.getByTestId("run-progress-value").textContent())).toBeGreaterThan(34);
 });
 
+test("sidebar task list restores previous runs", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("textbox", { name: "작업 입력" }).fill("사이드바 저장 검증");
+  await page.getByRole("textbox", { name: "작업 입력" }).press("Enter");
+  const worklog = page.getByLabel("Active run workspace");
+  await expect(worklog.getByRole("heading", { name: "사이드바 저장 검증" })).toBeVisible();
+  await expect(page.locator(".tasks-section").getByRole("button", { name: /사이드바 저장 검증/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "새 작업" }).click();
+  await expect(page.getByRole("heading", { name: "무엇을 실행할까요?" })).toBeVisible();
+
+  await page.locator(".tasks-section").getByRole("button", { name: /사이드바 저장 검증/ }).click();
+  await expect(page.getByLabel("Active run workspace").getByRole("heading", { name: "사이드바 저장 검증" })).toBeVisible();
+});
+
 test("commercial workspace controls are wired", async ({ page }) => {
   test.setTimeout(60000);
   await page.goto("/");
@@ -124,6 +140,7 @@ test("commercial workspace controls are wired", async ({ page }) => {
   await page.getByRole("textbox", { name: "작업 입력" }).fill("/deck-from-brief 교육지원 사업 데이터를 분석해 12장짜리 발표자료를 만들어줘");
   await page.locator(".send-button").click();
   await expect(page.getByLabel("Active run workspace").getByRole("heading", { name: "교육지원 사업 데이터를 분석해 12장짜리 발표자료를 만들어줘" })).toBeVisible();
+  await expect(page.getByLabel("Run artifacts").getByText("PPT 다운로드").first()).toBeVisible();
   await page.getByLabel("Active run workspace").getByRole("button", { name: "실행 기록" }).click();
   await expect(page.getByLabel("Current run inspector").getByLabel("Artifact preview")).toContainText("초안.pptx");
   await expect(page.getByLabel("Current run inspector").getByLabel("Artifact preview")).toContainText("pptx");

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import io
 import os
 import sys
 import time
+import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
@@ -75,6 +78,10 @@ def test_run_creation_websocket_stream_and_persistence(tmp_path: Path) -> None:
     assert pptx_artifact["title"].endswith(".pptx")
     assert pptx_artifact["mimeType"] == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     assert pptx_artifact["sizeBytes"] == pptx_artifact["content"]["download"]["size"]
+    outline_artifact = next(artifact for artifact in artifacts if artifact["type"] == "outline")
+    assert len(outline_artifact["content"]["slides"]) == 12
+    assert outline_artifact["content"]["slides"][0]["title"] == "표지"
+    assert outline_artifact["content"]["slides"][0]["bullets"]
 
     download = client.get(f"/api/runs/{run['id']}/artifacts/{pptx_artifact['id']}/download")
     assert download.status_code == 200
@@ -83,6 +90,12 @@ def test_run_creation_websocket_stream_and_persistence(tmp_path: Path) -> None:
     assert download.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.presentationml.presentation")
     assert "filename*=" in download.headers["content-disposition"]
     assert ".pptx" in download.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(download.content)) as package:
+        slide_names = [name for name in package.namelist() if name.startswith("ppt/slides/slide") and name.endswith(".xml")]
+        assert len(slide_names) == 12
+        assert "ppt/slides/slide12.xml" in slide_names
+        for name in slide_names:
+            ET.fromstring(package.read(name))
 
     missing_artifact = client.get(f"/api/runs/{run['id']}/artifacts/not-found/download")
     assert missing_artifact.status_code == 404

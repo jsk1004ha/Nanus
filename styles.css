@@ -349,6 +349,58 @@ input:focus-visible {
   font-weight: 700;
 }
 
+.task-row.history {
+  min-height: 48px;
+  align-items: start;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.task-row.history span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.task-row.history strong,
+.task-row.history small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-row.history strong {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.task-row.history small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.task-empty,
+.task-template-label {
+  display: block;
+  padding: 7px 2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.task-template-label {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
 .skill-mini {
   margin: 18px 8px 0;
   padding: 10px;
@@ -1883,6 +1935,8 @@ h1 {
 .sidebar-collapsed .nav-item span,
 .sidebar-collapsed .project-row span,
 .sidebar-collapsed .task-row span,
+.sidebar-collapsed .task-empty,
+.sidebar-collapsed .task-template-label,
 .sidebar-collapsed .section-title span,
 .sidebar-collapsed .skill-mini,
 .sidebar-collapsed .notify-card,
@@ -1964,6 +2018,8 @@ h1 {
   .sidebar-collapsed .nav-item span,
   .sidebar-collapsed .project-row span,
   .sidebar-collapsed .task-row span,
+  .sidebar-collapsed .task-empty,
+  .sidebar-collapsed .task-template-label,
   .sidebar-collapsed .section-title span,
   .sidebar-collapsed .account-row strong {
     display: initial;

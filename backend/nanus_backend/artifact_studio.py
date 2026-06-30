@@ -16,14 +16,33 @@ def _xml(value: Any) -> str:
 
 def _slide_text_paragraphs(text: str) -> str:
     lines = [line.strip() for line in text.splitlines() if line.strip()] or [text.strip()]
-    return "".join(
-        f"<a:p><a:r><a:rPr lang=\"ko-KR\" sz=\"2200\"/><a:t>{_xml(line)}</a:t></a:r><a:endParaRPr lang=\"ko-KR\" sz=\"2200\"/></a:p>"
-        for line in lines
-        if line
-    )
+    paragraphs = []
+    for index, line in enumerate(lines):
+        is_bullet = line.startswith("- ")
+        size = "2100" if index == 0 else "1800"
+        color = "F8FAFC" if index == 0 else "CBD5E1"
+        paragraph_props = '<a:pPr marL="228600" indent="-142875"/>' if is_bullet else "<a:pPr/>"
+        paragraphs.append(
+            f"<a:p>{paragraph_props}<a:r><a:rPr lang=\"ko-KR\" sz=\"{size}\"><a:solidFill><a:srgbClr val=\"{color}\"/></a:solidFill></a:rPr><a:t>{_xml(line)}</a:t></a:r><a:endParaRPr lang=\"ko-KR\" sz=\"{size}\"/></a:p>"
+        )
+    return "".join(paragraphs)
 
 
-def _slide_xml(title: str, body: str) -> str:
+def _slide_body(slide: dict[str, Any]) -> str:
+    lines: list[str] = []
+    message = str(slide.get("message") or slide.get("body") or "").strip()
+    if message:
+        lines.append(message)
+    bullets = slide.get("bullets")
+    if isinstance(bullets, list):
+        for bullet in bullets:
+            text = str(bullet).strip()
+            if text:
+                lines.append(f"- {text}")
+    return "\n".join(lines) or "Nanus Artifact Studio generated this slide."
+
+
+def _slide_xml(title: str, body: str, *, number: int, total: int, kicker: str) -> str:
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
   <p:cSld>
@@ -34,26 +53,51 @@ def _slide_xml(title: str, body: str) -> str:
       <p:sp>
         <p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
         <p:spPr>
-          <a:xfrm><a:off x="685800" y="594360"/><a:ext cx="10515600" cy="914400"/></a:xfrm>
+          <a:xfrm><a:off x="685800" y="731520"/><a:ext cx="10515600" cy="868680"/></a:xfrm>
           <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
           <a:noFill/>
         </p:spPr>
         <p:txBody>
           <a:bodyPr/><a:lstStyle/>
-          <a:p><a:r><a:rPr lang="ko-KR" sz="3600" b="1"><a:solidFill><a:srgbClr val="F8FAFC"/></a:solidFill></a:rPr><a:t>{_xml(title)}</a:t></a:r><a:endParaRPr lang="ko-KR" sz="3600"/></a:p>
+          <a:p><a:r><a:rPr lang="ko-KR" sz="3800" b="1"><a:solidFill><a:srgbClr val="F8FAFC"/></a:solidFill></a:rPr><a:t>{_xml(title)}</a:t></a:r><a:endParaRPr lang="ko-KR" sz="3800"/></a:p>
         </p:txBody>
       </p:sp>
       <p:sp>
-        <p:nvSpPr><p:cNvPr id="3" name="Body"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
+        <p:nvSpPr><p:cNvPr id="3" name="Kicker"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
         <p:spPr>
-          <a:xfrm><a:off x="914400" y="1798320"/><a:ext cx="10058400" cy="3438140"/></a:xfrm>
+          <a:xfrm><a:off x="731520" y="365760"/><a:ext cx="2514600" cy="274320"/></a:xfrm>
           <a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>
-          <a:solidFill><a:srgbClr val="172033"><a:alpha val="92000"/></a:srgbClr></a:solidFill>
-          <a:ln w="12700"><a:solidFill><a:srgbClr val="2F80ED"/></a:solidFill></a:ln>
+          <a:solidFill><a:srgbClr val="2F80ED"><a:alpha val="25000"/></a:srgbClr></a:solidFill>
+          <a:ln w="9525"><a:solidFill><a:srgbClr val="2F80ED"/></a:solidFill></a:ln>
         </p:spPr>
         <p:txBody>
-          <a:bodyPr lIns="285750" tIns="228600" rIns="285750" bIns="228600"/><a:lstStyle/>
+          <a:bodyPr lIns="137160" tIns="54864" rIns="137160" bIns="54864"/><a:lstStyle/>
+          <a:p><a:r><a:rPr lang="ko-KR" sz="1200" b="1"><a:solidFill><a:srgbClr val="93C5FD"/></a:solidFill></a:rPr><a:t>{_xml(kicker)}</a:t></a:r><a:endParaRPr lang="ko-KR" sz="1200"/></a:p>
+        </p:txBody>
+      </p:sp>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="4" name="Body"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="914400" y="1834890"/><a:ext cx="10058400" cy="3566160"/></a:xfrm>
+          <a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>
+          <a:solidFill><a:srgbClr val="172033"><a:alpha val="92000"/></a:srgbClr></a:solidFill>
+          <a:ln w="9525"><a:solidFill><a:srgbClr val="2F80ED"/></a:solidFill></a:ln>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr lIns="320040" tIns="274320" rIns="320040" bIns="274320"/><a:lstStyle/>
           {_slide_text_paragraphs(body)}
+        </p:txBody>
+      </p:sp>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="5" name="Footer"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="914400" y="6187440"/><a:ext cx="10058400" cy="228600"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+          <a:noFill/>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr/><a:lstStyle/>
+          <a:p><a:pPr algn="r"/><a:r><a:rPr lang="ko-KR" sz="1200"><a:solidFill><a:srgbClr val="64748B"/></a:solidFill></a:rPr><a:t>{number}/{total} · Nanus Artifact Studio</a:t></a:r><a:endParaRPr lang="ko-KR" sz="1200"/></a:p>
         </p:txBody>
       </p:sp>
     </p:spTree>
@@ -227,7 +271,13 @@ def build_pptx_bytes(title: str, slides: list[dict[str, Any]]) -> bytes:
         for index, slide in enumerate(safe_slides, start=1):
             package.writestr(
                 f"ppt/slides/slide{index}.xml",
-                _slide_xml(str(slide.get("title") or f"Slide {index}"), str(slide.get("message") or slide.get("body") or "")),
+                _slide_xml(
+                    str(slide.get("title") or f"Slide {index}"),
+                    _slide_body(slide),
+                    number=index,
+                    total=len(safe_slides),
+                    kicker=str(slide.get("kicker") or f"{index:02d}/{len(safe_slides):02d}"),
+                ),
             )
             package.writestr(f"ppt/slides/_rels/slide{index}.xml.rels", _slide_rels_xml())
     return buffer.getvalue()

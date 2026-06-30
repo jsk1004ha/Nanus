@@ -5,6 +5,7 @@ interface SlidePreview {
   number: number;
   title: string;
   message: string;
+  bullets: string[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -30,11 +31,15 @@ function escapeHtml(value: unknown) {
 
 function getSlides(content?: ArtifactContent): SlidePreview[] {
   const slides = Array.isArray(content?.slides) ? content.slides : [];
-  return slides.filter(isRecord).map((slide, index) => ({
-    number: asNumber(slide.number) ?? index + 1,
-    title: asText(slide.title, `Slide ${index + 1}`),
-    message: asText(slide.message ?? slide.body, "슬라이드 메시지가 준비되었습니다."),
-  }));
+  return slides.filter(isRecord).map((slide, index) => {
+    const bullets = Array.isArray(slide.bullets) ? slide.bullets.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+    return {
+      number: asNumber(slide.number) ?? index + 1,
+      title: asText(slide.title, `Slide ${index + 1}`),
+      message: asText(slide.message ?? slide.body, "슬라이드 메시지가 준비되었습니다."),
+      bullets,
+    };
+  });
 }
 
 function getReadableText(artifact: Artifact) {
@@ -60,6 +65,27 @@ export function formatArtifactSize(sizeBytes?: number) {
   if (!sizeBytes) return "";
   if (sizeBytes < 1024) return `${sizeBytes} B`;
   return `${Math.round(sizeBytes / 102.4) / 10} KB`;
+}
+
+export function getArtifactDownloadLabel(artifact: Artifact) {
+  const meta = getArtifactDownloadMeta(artifact);
+  const filename = meta.filename.toLowerCase();
+  const mimeType = meta.mimeType.toLowerCase();
+  if (artifact.type === "pptx" || filename.endsWith(".pptx") || mimeType.includes("presentation")) return "PPT 다운로드";
+  if (artifact.type === "markdown" || filename.endsWith(".md")) return "MD 다운로드";
+  if (artifact.type === "pdf" || filename.endsWith(".pdf")) return "PDF 다운로드";
+  if (artifact.type === "web" || mimeType.includes("html")) return "HTML 다운로드";
+  return "JSON 다운로드";
+}
+
+export function sortArtifactsForDisplay(artifacts: Artifact[]) {
+  const priority = (artifact: Artifact) => {
+    if (artifact.type === "pptx") return 0;
+    if (artifact.type === "markdown" || artifact.type === "pdf" || artifact.type === "web") return 1;
+    if (artifact.type === "outline") return 2;
+    return 3;
+  };
+  return [...artifacts].sort((left, right) => priority(left) - priority(right));
 }
 
 function saveBlob(filename: string, mimeType: string, data: BlobPart) {
@@ -117,6 +143,7 @@ function renderSlides(slides: SlidePreview[]) {
         <div>
           <h2>${escapeHtml(slide.title)}</h2>
           <p>${escapeHtml(slide.message)}</p>
+          ${slide.bullets.length ? `<ul>${slide.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
         </div>
       </article>`,
     )
@@ -145,8 +172,9 @@ function renderArtifactBody(artifact: Artifact) {
 function buildArtifactPreviewHtml(run: ActiveRun, artifact: Artifact) {
   const meta = getArtifactDownloadMeta(artifact);
   const downloadUrl = getArtifactDownloadUrl(run, artifact);
+  const downloadLabel = getArtifactDownloadLabel(artifact);
   const downloadAction = downloadUrl
-    ? `<a class="primary" href="${escapeHtml(downloadUrl)}" download="${escapeHtml(meta.filename)}">다운로드</a>`
+    ? `<a class="primary" href="${escapeHtml(downloadUrl)}" download="${escapeHtml(meta.filename)}">${escapeHtml(downloadLabel)}</a>`
     : "";
   return `<!doctype html>
 <html lang="ko">
@@ -170,6 +198,7 @@ function buildArtifactPreviewHtml(run: ActiveRun, artifact: Artifact) {
     .slide > span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: rgba(30, 136, 255, .16); color: #58a6ff; font-weight: 850; }
     h2 { margin: 0; font-size: 20px; }
     p { color: #d2d2d2; line-height: 1.7; }
+    ul { margin: 10px 0 0; padding-left: 18px; color: #cbd5e1; line-height: 1.65; }
     .document { padding: 20px; border: 1px solid #303030; border-radius: 14px; background: #1f1f1f; }
     .code { overflow: auto; padding: 18px; border: 1px solid #303030; border-radius: 14px; background: #101010; color: #d7d7d7; line-height: 1.55; }
   </style>

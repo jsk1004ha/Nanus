@@ -1,5 +1,5 @@
 import { Download, ExternalLink, FileText, GitBranch, Presentation, ShieldCheck } from "lucide-react";
-import { backendApiUrl } from "./backendConfig";
+import { getArtifactDownloadLabel, getArtifactDownloadMeta, getArtifactDownloadUrl, formatArtifactSize, sortArtifactsForDisplay } from "./artifactActions";
 import type { ActiveRun, Artifact, ArtifactContent } from "./types";
 import "./artifact-viewer.css";
 
@@ -7,6 +7,7 @@ interface SlidePreview {
   number: number;
   title: string;
   message: string;
+  bullets: string[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -23,42 +24,26 @@ function asSize(value: unknown) {
 
 function getSlides(content?: ArtifactContent): SlidePreview[] {
   const slides = Array.isArray(content?.slides) ? content.slides : [];
-  return slides.filter(isRecord).map((slide, index) => ({
-    number: asSize(slide.number) ?? index + 1,
-    title: asText(slide.title, `Slide ${index + 1}`),
-    message: asText(slide.message ?? slide.body, "슬라이드 메시지가 준비되었습니다."),
-  }));
-}
-
-function getArtifactDownloadMeta(artifact: Artifact) {
-  const download = artifact.content?.download;
-  return {
-    filename: artifact.fileName ?? download?.filename ?? download?.fileName ?? artifact.title,
-    mimeType: artifact.mimeType ?? download?.mimeType ?? "",
-    sizeBytes: artifact.sizeBytes ?? download?.sizeBytes ?? download?.size,
-  };
-}
-
-function getArtifactDownloadUrl(run: ActiveRun, artifact: Artifact) {
-  if (artifact.downloadUrl) return backendApiUrl(artifact.downloadUrl);
-  if (run.source !== "backend") return "";
-  return backendApiUrl(`/api/runs/${encodeURIComponent(run.id)}/artifacts/${encodeURIComponent(artifact.id)}/download`);
-}
-
-function formatArtifactSize(sizeBytes?: number) {
-  if (!sizeBytes) return "";
-  if (sizeBytes < 1024) return `${sizeBytes} B`;
-  return `${Math.round(sizeBytes / 102.4) / 10} KB`;
+  return slides.filter(isRecord).map((slide, index) => {
+    const bullets = Array.isArray(slide.bullets) ? slide.bullets.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+    return {
+      number: asSize(slide.number) ?? index + 1,
+      title: asText(slide.title, `Slide ${index + 1}`),
+      message: asText(slide.message ?? slide.body, "슬라이드 메시지가 준비되었습니다."),
+      bullets,
+    };
+  });
 }
 
 function ArtifactDownloadAction({ run, artifact }: { run: ActiveRun; artifact: Artifact }) {
   const url = getArtifactDownloadUrl(run, artifact);
   const meta = getArtifactDownloadMeta(artifact);
+  const label = getArtifactDownloadLabel(artifact);
   if (!url) {
     return (
       <button className="artifact-download" type="button" onClick={() => void import("./artifactActions").then(({ downloadArtifact }) => downloadArtifact(run, artifact))}>
         <Download />
-        다운로드
+        {label}
         {meta.sizeBytes ? <span>{formatArtifactSize(meta.sizeBytes)}</span> : null}
       </button>
     );
@@ -66,7 +51,7 @@ function ArtifactDownloadAction({ run, artifact }: { run: ActiveRun; artifact: A
   return (
     <a className="artifact-download" href={url} target="_blank" rel="noreferrer" download={meta.filename}>
       <Download />
-      다운로드
+      {label}
       {meta.sizeBytes ? <span>{formatArtifactSize(meta.sizeBytes)}</span> : null}
     </a>
   );
@@ -107,6 +92,7 @@ function renderSlides(slides: SlidePreview[]) {
           <div>
             <strong>{slide.title}</strong>
             <small>{slide.message}</small>
+            {slide.bullets.length ? <em>{slide.bullets.slice(0, 2).join(" · ")}</em> : null}
           </div>
         </li>
       ))}
@@ -216,7 +202,7 @@ function ArtifactCard({ run, artifact }: { run: ActiveRun; artifact: Artifact })
 }
 
 export function ArtifactViewer({ run }: { run: ActiveRun }) {
-  const artifacts = run.artifacts ?? [];
+  const artifacts = sortArtifactsForDisplay(run.artifacts ?? []);
   const pptxArtifact = artifacts.find((artifact) => artifact.type === "pptx");
   return (
     <section className="artifact-preview artifact-viewer" aria-label="Artifact preview">

@@ -31,9 +31,9 @@ import {
   quickActions,
   recommendations,
   skills,
-  tasks,
 } from "./data";
 import { createRun } from "./runModel";
+import type { RunHistoryItem } from "./runHistory";
 import type { ActiveRun, DensityMode, PanelId, Recommendation, SkillPackage, SkillTab, ThemeMode, ViewId, WorkspaceMode } from "./types";
 
 interface ToastMessage {
@@ -50,6 +50,7 @@ interface ProjectItem {
 
 const Panels = lazy(() => import("./Panels"));
 const OperationStage = lazy(() => import("./OperationStage"));
+const SidebarTasks = lazy(() => import("./SidebarTasks"));
 
 const miniCommandLabels: Record<string, string> = {
   "deck-from-brief": "/deck",
@@ -122,6 +123,7 @@ function IconButton({
 function Sidebar({
   activeView,
   projects,
+  activeRun,
   notificationStatus,
   collapsed,
   mobileOpen,
@@ -132,10 +134,12 @@ function Sidebar({
   onSelectView,
   onSelectSkill,
   onSelectTask,
+  onRestoreRun,
   onNotificationChoice,
 }: {
   activeView: ViewId;
   projects: ProjectItem[];
+  activeRun: ActiveRun | null;
   notificationStatus: "unknown" | "on" | "off";
   collapsed: boolean;
   mobileOpen: boolean;
@@ -146,6 +150,7 @@ function Sidebar({
   onSelectView: (view: ViewId) => void;
   onSelectSkill: (skill: SkillPackage) => void;
   onSelectTask: (taskTitle: string) => void;
+  onRestoreRun: (item: RunHistoryItem) => void;
   onNotificationChoice: (enabled: boolean) => void;
 }) {
   return (
@@ -209,15 +214,9 @@ function Sidebar({
             <ListFilter />
           </IconButton>
         </div>
-        {tasks.map((task, index) => {
-          const Icon = task.icon;
-          return (
-            <button key={task.id} className={`task-row${index === 0 ? " selected" : ""}`} type="button" onClick={() => onSelectTask(task.title)}>
-              <Icon />
-              <span>{task.title}</span>
-            </button>
-          );
-        })}
+        <Suspense fallback={null}>
+          <SidebarTasks activeRun={activeRun} onRestoreRun={onRestoreRun} onSelectTask={onSelectTask} />
+        </Suspense>
       </section>
 
       <section className="skill-mini" aria-label="Skill shortcuts">
@@ -773,6 +772,15 @@ export function App() {
     void beginRun(template);
   }
 
+  function restoreRunFromHistory(item: RunHistoryItem) {
+    runLaunchCount.current += 1;
+    runStreamCleanup.current?.();
+    runStreamCleanup.current = null;
+    setMobileSidebarOpen(false);
+    setRunPaused(item.status === "paused");
+    setActiveRun(item.snapshot);
+  }
+
   function createProject() {
     const name = projectDraft.trim();
     if (!name) {
@@ -828,6 +836,7 @@ export function App() {
       <Sidebar
         activeView={activeView}
         projects={projects}
+        activeRun={activeRun}
         notificationStatus={notificationStatus}
         collapsed={sidebarCollapsed}
         mobileOpen={mobileSidebarOpen}
@@ -841,6 +850,7 @@ export function App() {
         onSelectView={selectView}
         onSelectSkill={selectSkill}
         onSelectTask={selectTask}
+        onRestoreRun={restoreRunFromHistory}
         onNotificationChoice={handleNotificationChoice}
       />
       <MainStage

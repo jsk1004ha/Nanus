@@ -1,34 +1,15 @@
 import { useEffect, type Dispatch, type SetStateAction } from "react";
 import { Activity, Download, ExternalLink, FileText } from "lucide-react";
-import { backendApiUrl } from "./backendConfig";
+import { getArtifactDownloadLabel, getArtifactDownloadMeta, getArtifactDownloadUrl, formatArtifactSize, sortArtifactsForDisplay } from "./artifactActions";
 import { commandLabels } from "./runModel";
 import { advanceRun } from "./runProgress";
 import type { ActiveRun, Artifact, PanelId } from "./types";
 import "./run-workspace.css";
 
-function getArtifactDownloadMeta(artifact: Artifact) {
-  const download = artifact.content?.download;
-  return {
-    filename: artifact.fileName ?? download?.filename ?? download?.fileName ?? artifact.title,
-    sizeBytes: artifact.sizeBytes ?? download?.sizeBytes ?? download?.size,
-  };
-}
-
-function getArtifactDownloadUrl(run: ActiveRun, artifact: Artifact) {
-  if (artifact.downloadUrl) return backendApiUrl(artifact.downloadUrl);
-  if (run.source !== "backend") return "";
-  return backendApiUrl(`/api/runs/${encodeURIComponent(run.id)}/artifacts/${encodeURIComponent(artifact.id)}/download`);
-}
-
-function formatArtifactSize(sizeBytes?: number) {
-  if (!sizeBytes) return "";
-  if (sizeBytes < 1024) return `${sizeBytes} B`;
-  return `${Math.round(sizeBytes / 102.4) / 10} KB`;
-}
-
 function RunArtifactCard({ run, artifact }: { run: ActiveRun; artifact: Artifact }) {
   const meta = getArtifactDownloadMeta(artifact);
   const downloadUrl = getArtifactDownloadUrl(run, artifact);
+  const downloadLabel = getArtifactDownloadLabel(artifact);
 
   return (
     <article className="active-run-artifact">
@@ -50,12 +31,12 @@ function RunArtifactCard({ run, artifact }: { run: ActiveRun; artifact: Artifact
         {downloadUrl ? (
           <a href={downloadUrl} target="_blank" rel="noreferrer" download={meta.filename}>
             <Download />
-            다운로드
+            {downloadLabel}
           </a>
         ) : (
           <button type="button" onClick={() => void import("./artifactActions").then(({ downloadArtifact }) => downloadArtifact(run, artifact))}>
             <Download />
-            다운로드
+            {downloadLabel}
           </button>
         )}
       </div>
@@ -225,7 +206,7 @@ export default function RunWorkspace({
         </div>
 
         <div className="active-run-artifacts" aria-label="Run artifacts">
-          {run.artifacts.map((artifact) => (
+          {sortArtifactsForDisplay(run.artifacts).map((artifact) => (
             <RunArtifactCard key={artifact.id} run={run} artifact={artifact} />
           ))}
         </div>

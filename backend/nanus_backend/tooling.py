@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -21,6 +22,122 @@ def _verification(*, result_live: bool, errors: list[str] | None = None, warning
         "errors": errors or [],
         "warnings": warnings or ([] if result_live else ["LLM 키가 없어 로컬 fallback 답변을 생성했습니다."]),
     }
+
+
+def _target_slide_count(prompt: str) -> int:
+    match = re.search(r"(\d{1,2})\s*(?:장|slides?|페이지)", prompt, re.IGNORECASE)
+    if not match:
+        return 8
+    return max(5, min(14, int(match.group(1))))
+
+
+def _compact_subject(prompt: str) -> str:
+    compact = " ".join(prompt.split())
+    compact = re.sub(r"^/\S+\s*", "", compact)
+    compact = re.sub(r"\d{1,2}\s*(?:장|slides?|페이지)(?:짜리)?", "", compact, flags=re.IGNORECASE)
+    compact = re.sub(r"(발표자료|PPTX?|슬라이드|만들어줘|제작|생성|초안)(?:를|을)?", "", compact, flags=re.IGNORECASE)
+    compact = re.sub(r"\s+(?:를|을|로|으로)$", "", compact)
+    compact = compact.strip(" -·:|")
+    return compact[:48] or "Nanus 발표자료"
+
+
+def _slide(number: int, title: str, message: str, bullets: list[str], *, kicker: str = "") -> dict[str, Any]:
+    return {
+        "number": number,
+        "title": title,
+        "message": message,
+        "bullets": bullets[:4],
+        "kicker": kicker or f"{number:02d}",
+    }
+
+
+def _build_deck_slides(prompt: str, llm_notes: str) -> list[dict[str, Any]]:
+    count = _target_slide_count(prompt)
+    subject = _compact_subject(prompt)
+    note_excerpt = " ".join(llm_notes.split())[:120] if llm_notes else ""
+    base = [
+        (
+            "표지",
+            f"{subject}의 목적과 최종 산출물을 한눈에 제시합니다.",
+            ["프로젝트/보고서 제목", "작성 목적", "대상 청중과 사용 장면"],
+        ),
+        (
+            "핵심 요약",
+            "발표 시작 30초 안에 결론, 근거, 요청 사항을 전달합니다.",
+            ["문제 한 줄 정의", "해결 방향", "기대 효과", "오늘 필요한 결정"],
+        ),
+        (
+            "문제 배경",
+            f"{subject}가 왜 지금 필요한지 현장 조건과 관리 부담을 기준으로 설명합니다.",
+            ["현재 상황", "반복되는 불편", "비용/시간/안전 영향"],
+        ),
+        (
+            "목표와 성공 기준",
+            "좋은 아이디어가 아니라 검증 가능한 설계 목표로 전환합니다.",
+            ["성능 기준", "제작 가능성", "유지보수성", "평가 지표"],
+        ),
+        (
+            "핵심 설계안",
+            "주요 구성 요소와 작동 흐름을 구조적으로 보여줍니다.",
+            ["입력/트리거", "주요 장치", "출력/효과", "사용자 조작"],
+        ),
+        (
+            "작동 시나리오",
+            "사용자가 실제로 보게 되는 순서를 단계별로 설명합니다.",
+            ["대기 상태", "조건 충족", "자동 실행", "복귀/정리"],
+        ),
+        (
+            "비교 및 개선점",
+            "초기안 대비 개선안의 장점을 표 형태로 설명할 수 있게 정리합니다.",
+            ["복잡도 감소", "안전성 개선", "제작 난도 완화", "검증 용이성"],
+        ),
+        (
+            "실험 계획",
+            "결과 주장을 뒷받침할 실험 조건과 측정 방법을 명확히 합니다.",
+            ["통제 조건", "측정 항목", "반복 횟수", "기록 방식"],
+        ),
+        (
+            "리스크와 대응",
+            "실패 가능성을 숨기지 않고 선제 대응 계획으로 신뢰도를 높입니다.",
+            ["작동 실패", "측정 오차", "부품 파손", "일정 지연"],
+        ),
+        (
+            "일정과 역할",
+            "남은 작업을 월별/역할별로 나눠 실행 가능성을 보여줍니다.",
+            ["모델링", "제작", "실험", "최종 보완"],
+        ),
+        (
+            "결과물 구성",
+            "보고서, 발표자료, 웹 요약본 등 제출 가능한 산출물을 정리합니다.",
+            ["PPTX", "보고서 원고", "실험 사진", "요약 페이지"],
+        ),
+        (
+            "다음 액션",
+            "발표 이후 바로 실행할 일을 명확하게 닫습니다.",
+            ["우선 제작 부품 확정", "실험표 작성", "사진/도면 확보", "최종 검토 일정"],
+        ),
+        (
+            "부록: 참고 근거",
+            "출처, 계산 가정, 추가 도표를 분리해 본문 흐름을 방해하지 않게 합니다.",
+            ["참고문헌", "계산 가정", "원자료", "추가 이미지"],
+        ),
+        (
+            "부록: 발표 스크립트",
+            "슬라이드별 말할 내용을 짧은 큐카드로 정리합니다.",
+            ["도입 멘트", "핵심 전환", "질문 대비", "마무리 문장"],
+        ),
+    ]
+    slides = [
+        _slide(
+            index,
+            title,
+            message,
+            bullets + ([f"LLM 메모: {note_excerpt}"] if index == 2 and note_excerpt else []),
+            kicker=f"{index:02d}/{count:02d}",
+        )
+        for index, (title, message, bullets) in enumerate(base[:count], start=1)
+    ]
+    return slides
 
 
 def _writing_fallback_answer(prompt: str) -> str:
@@ -125,27 +242,22 @@ async def deck_from_brief(prompt: str, llm: AnthropicMessagesClient) -> dict[str
             "key messages, and verification notes."
         ),
     )
-    compact = " ".join(prompt.split()) or "새 발표자료"
-    base_title = compact[:36]
-    slides = [
-        {"number": 1, "title": "문제 정의", "message": f"{base_title}의 목적과 성공 기준을 정리합니다."},
-        {"number": 2, "title": "핵심 데이터", "message": "입력 자료에서 의사결정에 필요한 근거를 추출합니다."},
-        {"number": 3, "title": "실행 제안", "message": "다음 액션, 담당, 검증 지표를 제안합니다."},
-    ]
+    base_title = _compact_subject(prompt)
+    slides = _build_deck_slides(prompt, result.text)
     outline = {
         "title": f"{base_title} 발표자료",
         "provider": result.provider,
         "live": result.live,
         "summary": result.text,
         "slides": slides,
-        "qualityChecklist": ["메시지-근거 연결", "12장 확장 가능 구조", "PPTX 다운로드 파일 생성"],
+        "qualityChecklist": ["요청 장수 반영", "발표 흐름 구조화", "PPTX 다운로드 파일 생성", "슬라이드별 발표 메시지 포함"],
     }
     filename = _safe_filename(f"{base_title} 초안", ".pptx")
     pptx_bytes = build_pptx_bytes(outline["title"], slides)
     download = encode_download(filename, PPTX_MIME_TYPE, pptx_bytes)
     final_answer = (
-        f"{base_title} 발표자료 초안을 생성했습니다. 목차와 다운로드 가능한 PPTX 산출물을 함께 만들었고, "
-        "각 슬라이드는 문제 정의, 핵심 데이터, 실행 제안 흐름으로 구성되어 있습니다."
+        f"{base_title} 발표자료 초안을 {len(slides)}장 구성으로 생성했습니다. 목차와 다운로드 가능한 PPTX 산출물을 함께 만들었고, "
+        "표지, 문제 배경, 설계안, 실험 계획, 리스크, 다음 액션까지 발표 흐름으로 정리했습니다."
     )
     return {
         "finalAnswer": final_answer,
