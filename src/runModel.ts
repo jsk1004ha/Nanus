@@ -42,10 +42,10 @@ function splitCommand(input: string) {
 function detectRunKind(command: string, prompt: string): RunKind {
   const haystack = `${command} ${prompt}`.toLowerCase();
   if (command === "/deck-from-brief") return "deck";
-  if (command === "/document" || command === "/doc" || command === "/report" || /(보고서|문서|docx|markdown|원고)/.test(haystack)) return "document";
+  if (/(글\s*늘릴|늘릴\s*방법|늘릴방법|분량|보강|확장|문단 추가|문장 추가|첨삭|설득력 있게)/.test(haystack)) return "writing";
   if (command === "/spreadsheet" || command === "/excel" || command === "/xlsx" || /(엑셀|excel|xlsx|스프레드시트|워크북)/.test(haystack)) return "spreadsheet";
   if (command === "/visualization" || command === "/viz" || command === "/chart" || command === "/dashboard" || /(시각화|차트|그래프|dashboard|대시보드)/.test(haystack)) return "visualization";
-  if (/(글\s*늘릴|늘릴\s*방법|늘릴방법|분량|보강|확장|문단 추가|문장 추가|첨삭)/.test(haystack)) return "writing";
+  if (command === "/document" || command === "/doc" || command === "/report" || /(보고서|문서|docx|markdown|원고)/.test(haystack)) return "document";
   if (/(artifact-studio|deck|ppt|pdf|hwpx|발표|슬라이드)/.test(haystack)) return "deck";
   if (/(site|web|웹사이트)/.test(haystack)) return "site";
   if (/(app|desktop|앱)/.test(haystack)) return "app";
@@ -106,18 +106,5 @@ export function createRun(input: string): ActiveRun {
   const kind = detectRunKind(command, prompt);
   const title = summarizeRunTitle(prompt, command, kind);
   const steps = makeSteps(kind, prompt, command);
-  return {
-    id: `${Date.now()}`,
-    title,
-    prompt,
-    command,
-    kind,
-    status: "running",
-    worker: runWorkers[kind],
-    progress: 34,
-    startedAt: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }),
-    steps,
-    artifacts: buildArtifacts(kind, title),
-    log: [`${command} 명령을 수신했습니다.`, `${commandLabels[kind]} 실행 그래프를 구성했습니다.`, `현재 단계: ${steps.find((step) => step.state === "active")?.title ?? steps[0].title}`],
-  };
+  return { id: `${Date.now()}`, title, prompt, command, kind, status: "running", worker: runWorkers[kind], progress: 34, startedAt: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }), steps, artifacts: buildArtifacts(kind, title), log: [`${command} 명령을 수신했습니다.`, `${commandLabels[kind]} 실행 그래프를 구성했습니다.`, `현재 단계: ${steps.find((step) => step.state === "active")?.title ?? steps[0].title}`] };
 }
