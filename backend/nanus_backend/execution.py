@@ -14,18 +14,30 @@ def _append_log(run: dict[str, Any], line: str) -> None:
         run["log"].append(line)
 
 
-def _set_progress(run: dict[str, Any], progress: int) -> None:
-    run["progress"] = max(0, min(100, progress))
+def _step_progress(run: dict[str, Any], active_index: int) -> int:
+    steps = run.get("steps", [])
+    if not steps:
+        return max(1, int(run.get("progress", 0)))
+    total = max(1, len(steps))
+    safe_index = max(0, min(total - 1, active_index))
+    # Progress is derived from the actual run graph instead of the old 34→56→82→100 demo sequence.
+    return max(1, min(92, round(((safe_index + 0.5) / total) * 88)))
+
+
+def _set_active_step(run: dict[str, Any], active_index: int) -> None:
     steps = run.get("steps", [])
     if not steps:
         return
-    if progress >= 100:
-        for step in steps:
-            step["state"] = "done"
-        return
-    active_index = min(len(steps) - 1, max(0, int((progress / 100) * len(steps))))
+    safe_index = max(0, min(len(steps) - 1, active_index))
     for index, step in enumerate(steps):
-        step["state"] = "done" if index < active_index else "active" if index == active_index else "pending"
+        step["state"] = "done" if index < safe_index else "active" if index == safe_index else "pending"
+    run["progress"] = max(int(run.get("progress", 0)), _step_progress(run, safe_index))
+
+
+def _mark_all_steps_done(run: dict[str, Any]) -> None:
+    for step in run.get("steps", []):
+        step["state"] = "done"
+    run["progress"] = 100
 
 
 def _newly_done_titles(previous: list[dict[str, Any]], current: list[dict[str, Any]]) -> list[str]:
@@ -116,39 +128,18 @@ class ExecutionEngine:
 
         try:
             run["status"] = "running"
+            run.setdefault("runtime", {})["agentLoop"] = []
             _append_log(run, "백그라운드 작업자가 실행을 시작했습니다.")
+            _append_log(run, "Agent loop: Planner → Tool Executor → Verifier → Artifact handoff")
             self._update_assistant_message(run, status="running")
             self._persist_and_emit(run, "run.started")
 
-            await self._checkpoint(run_id, job_id)
-            run = self.store.get_run(run_id)
-            if not run or run["status"] == "cancelled":
-                self.store.update_job(job_id, "cancelled")
+            run = await self._enter_phase(run_id, job_id, phase_id="plan", title="Planner", detail="요구사항을 실행 그래프로 분해합니다.", step_index=0)
+            if not run:
                 return
-
-            previous_steps = [dict(step) for step in run["steps"]]
-            _set_progress(run, 34)
-            for title in _newly_done_titles(previous_steps, run["steps"]):
-                _append_log(run, f"완료: {title}")
-            active = next((step for step in run["steps"] if step.get("state") == "active"), None)
-            if active:
-                _append_log(run, f"현재 단계: {active['title']}")
-            self._persist_and_emit(run)
-
-            await self._checkpoint(run_id, job_id)
-            run = self.store.get_run(run_id)
-            if not run or run["status"] == "cancelled":
-                self.store.update_job(job_id, "cancelled")
+            run = await self._enter_phase(run_id, job_id, phase_id="execute", title="Tool Executor", detail="선택된 LLM/스킬/코드 도구를 실행합니다.", step_index=min(1, len(run.get("steps", [])) - 1))
+            if not run:
                 return
-
-            previous_steps = [dict(step) for step in run["steps"]]
-            _set_progress(run, 56)
-            for title in _newly_done_titles(previous_steps, run["steps"]):
-                _append_log(run, f"완료: {title}")
-            active = next((step for step in run["steps"] if step.get("state") == "active"), None)
-            if active:
-                _append_log(run, f"현재 단계: {active['title']}")
-            self._persist_and_emit(run)
 
             adapter_result = await self._execute_adapter(run)
             final_answer = _final_answer(adapter_result)
@@ -156,6 +147,7 @@ class ExecutionEngine:
             if not run or run["status"] == "cancelled":
                 self.store.update_job(job_id, "cancelled")
                 return
+
             run["finalAnswer"] = final_answer
             run["resultType"] = str(adapter_result.get("resultType") or run.get("kind") or "answer")
             run["verification"] = _normalize_verification(
@@ -198,30 +190,13 @@ class ExecutionEngine:
             )
             self._persist_and_emit(run)
 
-            await self._checkpoint(run_id, job_id)
-            run = self.store.get_run(run_id)
-            if not run or run["status"] == "cancelled":
-                self.store.update_job(job_id, "cancelled")
+            run = await self._enter_phase(run_id, job_id, phase_id="verify", title="Verifier", detail="finalAnswer, artifact, fallback 상태를 검증합니다.", step_index=max(0, len(run.get("steps", [])) - 1))
+            if not run:
                 return
 
-            previous_steps = [dict(step) for step in run["steps"]]
-            _set_progress(run, 82)
-            for title in _newly_done_titles(previous_steps, run["steps"]):
-                _append_log(run, f"완료: {title}")
-            active = next((step for step in run["steps"] if step.get("state") == "active"), None)
-            if active:
-                _append_log(run, f"현재 단계: {active['title']}")
-            self._persist_and_emit(run)
-
-            await self._checkpoint(run_id, job_id)
-            run = self.store.get_run(run_id)
-            if not run or run["status"] == "cancelled":
-                self.store.update_job(job_id, "cancelled")
-                return
-
-            previous_steps = [dict(step) for step in run["steps"]]
-            _set_progress(run, 100)
-            for title in _newly_done_titles(previous_steps, run["steps"]):
+            previous_steps = [dict(step) for step in run.get("steps", [])]
+            _mark_all_steps_done(run)
+            for title in _newly_done_titles(previous_steps, run.get("steps", [])):
                 _append_log(run, f"완료: {title}")
             verification_status = str(run.get("verification", {}).get("status") or "verified")
             run["status"] = "degraded" if verification_status == "degraded" else "complete"
@@ -229,7 +204,9 @@ class ExecutionEngine:
                 _append_log(run, "제한 실행으로 종료되었습니다. 답변은 제공되었지만 fallback 또는 일부 제한이 있습니다.")
             else:
                 _append_log(run, "실행이 완료되었습니다.")
+            phase = self._record_phase(run, phase_id="deliver", title="Artifact Handoff", detail="답변과 산출물을 사용자에게 전달했습니다.")
             self._persist_and_emit(run)
+            self._event(run_id, "agent.phase", {"run": run, "phase": phase})
             self.store.update_job(job_id, run["status"])
             self._event(run_id, "run.done" if run["status"] == "complete" else "run.degraded", {"run": run})
         except Exception as exc:
@@ -308,6 +285,40 @@ class ExecutionEngine:
 
     def _event(self, run_id: str, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.store.add_event(run_id, event_type, payload)
+
+    def _record_phase(self, run: dict[str, Any], *, phase_id: str, title: str, detail: str) -> dict[str, Any]:
+        runtime = run.setdefault("runtime", {})
+        raw_loop = runtime.get("agentLoop")
+        agent_loop: list[dict[str, Any]] = raw_loop if isinstance(raw_loop, list) else []
+        phase = {
+            "id": phase_id,
+            "title": title,
+            "detail": detail,
+            "progress": int(run.get("progress", 0)),
+            "index": len(agent_loop) + 1,
+        }
+        agent_loop.append(phase)
+        runtime["agentLoop"] = agent_loop
+        _append_log(run, f"Agent phase: {title} — {detail}")
+        return phase
+
+    async def _enter_phase(self, run_id: str, job_id: str, *, phase_id: str, title: str, detail: str, step_index: int) -> dict[str, Any] | None:
+        await self._checkpoint(run_id, job_id)
+        run = self.store.get_run(run_id)
+        if not run or run["status"] == "cancelled":
+            self.store.update_job(job_id, "cancelled")
+            return None
+        previous_steps = [dict(step) for step in run.get("steps", [])]
+        _set_active_step(run, step_index)
+        for done_title in _newly_done_titles(previous_steps, run.get("steps", [])):
+            _append_log(run, f"완료: {done_title}")
+        active = next((step for step in run.get("steps", []) if step.get("state") == "active"), None)
+        if active:
+            _append_log(run, f"현재 단계: {active['title']}")
+        phase = self._record_phase(run, phase_id=phase_id, title=title, detail=detail)
+        self._persist_run(run)
+        self._event(run_id, "agent.phase", {"run": run, "phase": phase})
+        return run
 
     async def _checkpoint(self, run_id: str, job_id: str) -> None:
         while True:
